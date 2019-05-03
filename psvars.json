@@ -1,0 +1,2140 @@
+{
+    "shell": "PowerShell",
+    "version": 5.0,
+    "BuildSubModuleVersion": "1.0.6.3",
+    "attributes": [
+        {
+            "Name": "VerbosePreference",
+            "Value": "Continue"
+        },
+        {
+            "Name": "DebugPreference",
+            "Value": "SilentlyContinue"
+        }
+    ],
+    "EnvironmentVariables": [
+        {
+            "variable": "S3_BUCKET",
+            "value": "sqlhorizons",
+            "target": "Machine"
+        },
+        {
+            "variable": "environment",
+            "value": "backups/dev",
+            "target": "Machine"
+        },
+        {
+            "variable": "AWS_DEFAULT_REGION",
+            "value": "eu-west-2",
+            "target": "Machine"
+        },
+        {
+            "variable": "MailBox",
+            "value": "paul.dmax@sqlhorizons.com",
+            "target": "Machine"
+        },
+        {
+            "variable": "SmtpServer",
+            "value": "auth.smtp.1and1.co.uk",
+            "target": "Machine"
+        },
+        {
+            "variable": "smtpPort",
+            "value": 587,
+            "target": "Machine"
+        }
+    ],
+    "pipeline": [
+        {
+            "step": 0,
+            "script": "apply-globalVariables.ps1",
+            "description": "applies global variables for build.",
+            "parameters": [
+                {
+                    "Name": "GlobalParams",
+                    "Value": {
+                        "RoleArn": "arn:aws:iam::681585873854:role/operations-dba",
+                        "Region": "eu-west-2"
+                    }
+                }
+            ]
+        },
+        {
+            "step": 1,
+            "script": "vault-token.ps1",
+            "description": "get vault token.",
+            "parameters": [
+                {
+                    "Name": "VaultParams",
+                    "Value": {
+                        "uri": "http://vault.com:8200",
+                        "authMethod": "userpass",
+                        "VCSToken": {
+                            "backend": "team_aws_direct_operations_dba_generic",
+                            "alias": "Msa_deployer",
+                            "key": "GITHUB_TOKEN"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "step": 2,
+            "script": "deploy-resources.ps1",
+            "description": "deploys SQL2016 build resources.",
+            "parameters": [
+                {
+                    "Name": "ResourcesParams",
+                    "Value": [
+                        {
+                            "uri": "http://ms-oc27:8081/repository/resources/microsoft/MSSQL/13.0",
+                            "files": [
+                                "SQLServer2016-SP2-x64-ENU-Dev.iso",
+                                "SQLServer2016-KB4475776-x64.exe"
+                            ],
+                            "path": "C:/ProgramData/.resources"
+                        },
+                        {
+                            "uri": "http://ms-oc27:8081/repository/resources/microsoft/ACE/16.0",
+                            "files": [
+                                "AccessDatabaseEngine_X64.exe"
+                            ],
+                            "path": "C:/ProgramData/.resources",
+                            "install": true,
+                            "ArgumentList": [
+                                "/quiet",
+                                "/norestart"
+                            ]
+                        },
+                        {
+                            "uri": "http://ms-oc27:8081/repository/resources/microsoft/nuget/2.8.5.208",
+                            "files": [
+                                "Microsoft.PackageManagement.NuGetProvider.dll"
+                            ],
+                            "path": "C:/Program Files/PackageManagement/ProviderAssemblies/nuget/2.8.5.208"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "step": 3,
+            "script": "deploy-modules.ps1",
+            "description": "deploys PowerShell DSC modules.",
+            "parameters": [
+                {
+                    "Name": "ModuleParams",
+                    "Value": [
+                        {
+                            "PSRepository": {
+                                "InstallationPolicy": "Trusted",
+                                "PackageManagementProvider": "nuget",
+                                "Name": "SQLHorizons",
+                                "PublishLocation": "http://ms-oc27:8081/repository/SQLHorizons/",
+                                "SourceLocation": "http://ms-oc27:8081/repository/SQLHorizons/",
+                                "ErrorAction": "SilentlyContinue"
+                            },
+                            "modules": [
+                                {
+                                    "Name": "SqlServerDsc",
+                                    "RequiredVersion": "12.2.0.0"
+                                },
+                                {
+                                    "Name": "StorageDsc",
+                                    "RequiredVersion": "4.2.0.0"
+                                },
+                                {
+                                    "Name": "SqlServer",
+                                    "RequiredVersion": "21.0.17279"
+                                },
+                                {
+                                    "Name": "PSWindowsUpdate",
+                                    "RequiredVersion": "2.1.0.1"
+                                },
+                                {
+                                    "Name": "AWSPowerShell",
+                                    "RequiredVersion": "3.3.428.0"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "step": 5.0,
+            "script": "deploy-sql.ps1",
+            "description": "deploys an instance of SQL Services.",
+            "parameters": [
+                {
+                    "Name": "pattern",
+                    "Value": {
+                        "vault": [
+                            {
+                                "uri": "http://vault.com:8200",
+                                "backend": "team_aws_direct_operations_dba_generic",
+                                "alias": "REF_BUILD"
+                            }
+                        ],
+                        "Node": [
+                            {
+                                "Name": "localhost",
+                                "Features": "SQLENGINE,IS",
+                                "Version": "SQL2016",
+                                "InstanceName": "MSSQLSERVER",
+                                "port": 1433,
+                                "endPointName": "HaDr_endPoint",
+                                "endPointPort": 10767,
+                                "Collation": "Latin1_General_CI_AS",
+                                "AgtSvcAccount": "NT Service\\SQLSERVERAGENT",
+                                "SQLSvcAccount": {
+                                    "Name": "gMSA_REF_BUILD",
+                                    "IFIGroup": "SQL_MAINTENANCE",
+                                    "Enabled": true,
+                                    "DNSHostName": "is-oc21.avivahome.com",
+                                    "Path": "CN=mssql-msa,CN=Managed Service Accounts,DC=AVIVAHOME,DC=COM",
+                                    "ManageMsa": [
+                                        "is-oc21",
+                                        "db-oc21"
+                                    ],
+                                    "Domain": "AVIVAHOME",
+                                    "Msa_deployer": "AVIVAHOME\\deployer",
+                                    "vault": {
+                                        "uri": "http://vault.com:8200",
+                                        "backend": "team_aws_direct_operations_dba_generic",
+                                        "alias": "Msa_deployer"
+                                    }
+                                },
+                                "RestartService": true,
+                                "TraceFlags": [
+                                    "1204",
+                                    "1222"
+                                ],
+                                "path": ".resources",
+                                "ImagePath": "SQLServer2016-SP2-x64-ENU-Dev.iso",
+                                "SourceDrive": "Z:",
+                                "UpdateSource": "C:/ProgramData/.resources",
+                                "InstallDrive": "S:",
+                                "InstallDriveId": 4,
+                                "ParallelismCost": 500,
+                                "DiffieHellman": true,
+                                "DatabaseOps": "AVIVAHOME\\ACC_AWS_CloudDBTools",
+                                "deployer": "dbAdmin",
+                                "databases": [
+                                    {
+                                        "Name": "ASPSession",
+                                        "Owner": "dbAdmin",
+                                        "RecoveryModel": "Full"
+                                    }
+                                ],
+                                "directories": [
+                                    "diag_01",
+                                    "Packages",
+                                    "PoSh"
+                                ],
+                                "disks": [
+                                    {
+                                        "Name": "backUp_01",
+                                        "id": 2,
+                                        "AccessPath": "backUp_01"
+                                    },
+                                    {
+                                        "Name": "data_01",
+                                        "id": 1,
+                                        "AccessPath": "data_01"
+                                    },
+                                    {
+                                        "Name": "tLog_01",
+                                        "id": 3,
+                                        "AccessPath": "tLog_01"
+                                    },
+                                    {
+                                        "Name": "tempdb_01",
+                                        "id": 5,
+                                        "AccessPath": "tempdb_01"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "step": 6,
+            "script": "connect-SQLServer.ps1",
+            "description": "creates a global connection to the SQL for deployment.",
+            "parameters": [
+                {
+                    "Name": "SQLServerParams",
+                    "Value": [
+                        {
+                            "ServerName": "localhost",
+                            "vault": {
+                                "uri": "http://vault.com:8200",
+                                "backend": "team_aws_direct_operations_dba_generic",
+                                "alias": "REF_BUILD"
+                            },
+                            "user": "dbAdmin",
+                            "LoginType": "SqlLogin",
+                            "TimeOut": 0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "step": 7,
+            "script": "deploy-tempdb.ps1",
+            "description": "deploys the desired state for tempdb.",
+            "parameters": [
+                {
+                    "Name": "tempdbParam",
+                    "Value": [
+                        {
+                            "ServerName": "localhost",
+                            "LoginType": "WindowsUser",
+                            "LogicalName": "tempdev",
+                            "Size": 128,
+                            "Files": 4
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "step": 8.0,
+            "script": "deploy-databases.ps1",
+            "description": "deploys the application databases.",
+            "parameters": [
+                {
+                    "Name": "DatabaseParams",
+                    "Value": {
+                        "Platform": "EC2",
+                        "Databases": [
+                            {
+                                "Database": "SQLOps",
+                                "ReplaceDatabase": true,
+                                "Device": "url",
+                                "Path": "http://ms-oc27:8081/repository/resources/SQLOps/MSSQL/13.0",
+                                "BackupFile": "SQLOps_FULL_20190327_150429.bak"
+                            },
+                            {
+                                "Database": "ASPSession",
+                                "ReplaceDatabase": true,
+                                "Device": "S3",
+                                "Bucket": "sqlhorizons",
+                                "Region": "eu-west-2",
+                                "Path": "backups/dev/ASPSession",
+                                "BackupFile": "LATEST"
+                            },
+                            {
+                                "Database": "nexus",
+                                "DatabaseRole": "principal",
+                                "ReplaceDatabase": true,
+                                "NoRecovery": true,
+                                "Device": "S3",
+                                "Bucket": "sqlhorizons",
+                                "Region": "eu-west-2",
+                                "Path": "backups/dev/nexus",
+                                "BackupFile": "LATEST",
+                                "RelocateFiles": [
+                                    {
+                                        "logicalFileName": "nexus",
+                                        "physicalFilePath": "S:/Data_X/data_01/MSSQL/Data",
+                                        "physicalFileName": "nexus_data.mdf"
+                                    },
+                                    {
+                                        "logicalFileName": "nexus_Log",
+                                        "physicalFilePath": "S:/Data_X/tLog_01/MSSQL/tLog",
+                                        "physicalFileName": "nexus_log.ldf"
+                                    }
+                                ],
+                                "Settings": {
+                                    "Compatibility": "Version130",
+                                    "dbOwner": "dbAdmin",
+                                    "RevokeGuest": true,
+                                    "AutoClose": false,
+                                    "AutoShrink": false,
+                                    "PageVerify": "Checksum",
+                                    "OwnershipChaining": false,
+                                    "FixVirtualLogFiles": true,
+                                    "LogFile": {
+                                        "Size": 20,
+                                        "Growth": 5,
+                                        "GrowthType": "KB",
+                                        "MaxSize": 100
+                                    },
+                                    "RecoveryModel": "Full"
+                                },
+                                "roles": {
+                                    "roleName": "app_dataAdmin",
+                                    "Owner": "dbo",
+                                    "roles": [
+                                        "db_ddladmin",
+                                        "db_securityadmin",
+                                        "db_backupoperator",
+                                        "db_datareader"
+                                    ],
+                                    "DatabasePermissionSet": [
+                                        "ViewDatabaseState",
+                                        "ViewDefinition",
+                                        "AlterAnyUser",
+                                        "Execute"
+                                    ]
+                                },
+                                "cleanup": {
+                                    "Principals": [
+                                        {
+                                            "LoginType": "WindowsGroup",
+                                            "dropPrincipal": true,
+                                            "domain": "AVIVAHOME"
+                                        },
+                                        {
+                                            "LoginType": "WindowsUser",
+                                            "dropPrincipal": true
+                                        }
+                                    ]
+                                }
+                            },
+                            {
+                                "Database": "sessionData",
+                                "ReplaceDatabase": true,
+                                "Device": "SMB",
+                                "Path": "unc::ms-oc27/data",
+                                "BackupFile": "DB-OC21_sessionData_FULL_20180929_223658.bak",
+                                "Settings": {
+                                    "Compatibility": "Version130",
+                                    "AutoClose": false,
+                                    "AutoShrink": false,
+                                    "PageVerify": "Checksum",
+                                    "OwnershipChaining": false,
+                                    "FixVirtualLogFiles": false,
+                                    "RecoveryModel": "Simple"
+                                }
+                            },
+                            {
+                                "Database": "SQLHorizons",
+                                "ReplaceDatabase": true,
+                                "Device": "S3",
+                                "Bucket": "sqlhorizons",
+                                "Region": "eu-west-2",
+                                "Path": "backups/dev/SQLHorizons/FULL",
+                                "BackupFile": "DB-OC21_SQLHorizons_FULL_20190314_155021.bak",
+                                "RelocateFiles": [
+                                    {
+                                        "logicalFileName": "SQLHorizons",
+                                        "physicalFilePath": "S:/Data_X/data_01/MSSQL/Data",
+                                        "physicalFileName": "SQLHorizons.mdf"
+                                    },
+                                    {
+                                        "logicalFileName": "SQLHorizons_log",
+                                        "physicalFilePath": "S:/Data_X/tLog_01/MSSQL/tLog",
+                                        "physicalFileName": "SQLHorizons.ldf"
+                                    }
+                                ],
+                                "Settings": {
+                                    "Compatibility": "Version130",
+                                    "dbOwner": "dbAdmin",
+                                    "RevokeGuest": true,
+                                    "AutoClose": false,
+                                    "AutoShrink": false,
+                                    "PageVerify": "Checksum",
+                                    "OwnershipChaining": false,
+                                    "FixVirtualLogFiles": true,
+                                    "LogFile": {
+                                        "Size": 20,
+                                        "Growth": 5,
+                                        "GrowthType": "KB",
+                                        "MaxSize": 100
+                                    },
+                                    "RecoveryModel": "Full"
+                                },
+                                "roles": {
+                                    "roleName": "app_dataAdmin",
+                                    "Owner": "dbo",
+                                    "roles": [
+                                        "db_ddladmin",
+                                        "db_securityadmin",
+                                        "db_backupoperator",
+                                        "db_datareader"
+                                    ],
+                                    "DatabasePermissionSet": [
+                                        "ViewDatabaseState",
+                                        "ViewDefinition",
+                                        "AlterAnyUser",
+                                        "Execute"
+                                    ]
+                                },
+                                "cleanup": {
+                                    "Principals": [
+                                        {
+                                            "LoginType": "WindowsGroup",
+                                            "dropPrincipal": true,
+                                            "domain": "AVIVAHOME"
+                                        },
+                                        {
+                                            "LoginType": "WindowsUser",
+                                            "dropPrincipal": true
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "step": 8.1,
+            "script": "deploy-mirroring.ps1",
+            "description": "deploys the database mirroring configuration.",
+            "parameters": [
+                {
+                    "Name": "HaDrParams",
+                    "Value": {
+                        "Platform": "EC2",
+                        "HaDrRoles": [
+                            {
+                                "name": "mirror",
+                                "alias": "db-oc22",
+                                "port": 10767
+                            },
+                            {
+                                "name": "principal",
+                                "alias": "db-oc21",
+                                "port": 10767
+                            }
+                        ],
+                        "vault": {
+                            "uri": "http://vault.com:8200",
+                            "backend": "team_aws_direct_operations_dba_generic",
+                            "alias": "REF_BUILD"
+                        },
+                        "user": "dbAdmin",
+                        "LoginType": "SqlLogin",
+                        "TimeOut": 0,
+                        "FailOverTest": true,
+                        "databases": [
+                            "ASPSession",
+                            "nexus",
+                            "sessionData",
+                            "SQLHorizons"
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "step": 9,
+            "script": "deploy-SQLJobs.ps1",
+            "description": "deploys SQL Agent Jobs.",
+            "parameters": [
+                {
+                    "Name": "JobsParam",
+                    "Value": {
+                        "PoShTools": {
+                            "BackupDirectory": "S:/Data_X/backUp_01/MSSQL/Backup",
+                            "Destination": "S:/Data_X/PoSh"
+                        },
+                        "jobCategory": "SQLOps - Database Maintenance",
+                        "Jobs": [
+                            {
+                                "jobName": "SQLOps - Agent Alert Test",
+                                "jobOwner": "dbAdmin",
+                                "jobEnabled": true,
+                                "StartStepID": 2,
+                                "jobDescription": "Test the SQL Agent Alert process.",
+                                "Steps": [
+                                    {
+                                        "step": 1,
+                                        "stepName": "SQLOps - Job Failed - RAISE ALERT",
+                                        "stepCommand": "S:\\Data_X\\PoSh\\Email-Alert.ps1 @{JobName = \"$(ESCAPE_SQUOTE(JOBNAME))\"; Server = \"$(ESCAPE_SQUOTE(MACH))\"; Date = \"$(ESCAPE_SQUOTE(STRTDT))\"; Time = \"$(ESCAPE_SQUOTE(STRTTM))\"}",
+                                        "CommandType": "posh",
+                                        "OnFailAction": "QuitWithFailure",
+                                        "OnSuccessAction": "QuitWithFailure",
+                                        "SubSystem": "PowerShell"
+                                    },
+                                    {
+                                        "step": 2,
+                                        "stepName": "SQLOps - Agent Alert Test",
+                                        "stepCommand": "Throw \"Test Alert!\"",
+                                        "CommandType": "posh",
+                                        "OnFailAction": "GoToStep",
+                                        "OnFailStep": 1,
+                                        "OnSuccessAction": "QuitWithSuccess",
+                                        "SubSystem": "PowerShell"
+                                    }
+                                ],
+                                "Schedules": [
+                                    {
+                                        "scheduleName": "SQLOps - Agent Alert Test",
+                                        "IsEnabled": true,
+                                        "StartTimeOfDay": "09:00:00",
+                                        "EndTimeOfDay": "17:59:59",
+                                        "FrequencyInterval": 1,
+                                        "FrequencySubDayTypes": "Minute",
+                                        "FrequencySubDayInterval": 15,
+                                        "FrequencyRecurrenceFactor": 0,
+                                        "FrequencyTypes": "Daily"
+                                    }
+                                ]
+                            },
+                            {
+                                "jobName": "SQLOps - DatabaseBackup - SYSTEM_DATABASES - FULL",
+                                "jobOwner": "sa",
+                                "jobEnabled": true,
+                                "StartStepID": 2,
+                                "jobDescription": "Source: http://ola.hallengren.com",
+                                "Steps": [
+                                    {
+                                        "step": 1,
+                                        "stepName": "SQLOps - Job Failed - RAISE ALERT",
+                                        "stepCommand": "S:\\Data_X\\PoSh\\Email-Alert.ps1 @{JobName = \"$(ESCAPE_SQUOTE(JOBNAME))\"; Server = \"$(ESCAPE_SQUOTE(MACH))\"; Date = \"$(ESCAPE_SQUOTE(STRTDT))\"; Time = \"$(ESCAPE_SQUOTE(STRTTM))\"}",
+                                        "CommandType": "posh",
+                                        "OnFailAction": "QuitWithFailure",
+                                        "OnSuccessAction": "QuitWithFailure",
+                                        "SubSystem": "PowerShell"
+                                    },
+                                    {
+                                        "step": 2,
+                                        "stepName": "SQLOps - DatabaseBackup - SYSTEM_DATABASES - FULL",
+                                        "stepCommand": "EXECUTE [olah].[DatabaseBackup] @Databases = 'SYSTEM_DATABASES', @Directory = N'S:\\Data_X\\backup_01\\MSSQL\\Backup', @BackupType = 'FULL', @Verify = 'Y', @CleanupTime = 48, @CheckSum = 'Y', @LogToTable = 'Y'",
+                                        "CommandType": "sqlcmd",
+                                        "stepDatabase": "SQLOps",
+                                        "OnFailAction": "GoToStep",
+                                        "OnFailStep": 1,
+                                        "OnSuccessAction": "GoToStep",
+                                        "OnSuccessStep": 3,
+                                        "OutputFileName": "DatabaseBackup",
+                                        "SubSystem": "CmdExec"
+                                    },
+                                    {
+                                        "step": 3,
+                                        "stepName": "Copy-ToAWSBucket",
+                                        "stepCommand": "S:\\Data_X\\PoSh\\Copy-ToAWSBucket.ps1 -IsSystemObject",
+                                        "CommandType": "posh",
+                                        "OnFailAction": "GoToStep",
+                                        "OnFailStep": 1,
+                                        "OnSuccessAction": "QuitWithSuccess",
+                                        "OutputFileName": "Copy-SYSTEM-ToAWSBucket",
+                                        "SubSystem": "PowerShell"
+                                    }
+                                ],
+                                "Schedules": [
+                                    {
+                                        "scheduleName": "Evening Backups",
+                                        "IsEnabled": true,
+                                        "StartTimeOfDay": "19:57:00",
+                                        "EndTimeOfDay": "23:59:59",
+                                        "FrequencyInterval": 1,
+                                        "FrequencySubDayTypes": "Once",
+                                        "FrequencySubDayInterval": 0,
+                                        "FrequencyRecurrenceFactor": 0,
+                                        "FrequencyTypes": "Daily"
+                                    }
+                                ]
+                            },
+                            {
+                                "jobName": "SQLOps - DatabaseBackup - USER_DATABASES - FULL",
+                                "jobOwner": "sa",
+                                "jobEnabled": true,
+                                "StartStepID": 2,
+                                "jobDescription": "Source: http://ola.hallengren.com",
+                                "Steps": [
+                                    {
+                                        "step": 1,
+                                        "stepName": "SQLOps - Job Failed - RAISE ALERT",
+                                        "stepCommand": "S:\\Data_X\\PoSh\\Email-Alert.ps1 @{JobName = \"$(ESCAPE_SQUOTE(JOBNAME))\"; Server = \"$(ESCAPE_SQUOTE(MACH))\"; Date = \"$(ESCAPE_SQUOTE(STRTDT))\"; Time = \"$(ESCAPE_SQUOTE(STRTTM))\"}",
+                                        "CommandType": "posh",
+                                        "OnFailAction": "QuitWithFailure",
+                                        "OnSuccessAction": "QuitWithFailure",
+                                        "SubSystem": "PowerShell"
+                                    },
+                                    {
+                                        "step": 2,
+                                        "stepName": "SQLOps - DatabaseBackup - USER_DATABASES - FULL",
+                                        "stepCommand": "EXECUTE [olah].[DatabaseBackup] @Databases = 'USER_DATABASES', @Directory = N'S:\\Data_X\\backup_01\\MSSQL\\Backup', @BackupType = 'FULL', @Verify = 'Y', @CleanupTime = 48, @CheckSum = 'Y', @LogToTable = 'Y'",
+                                        "CommandType": "sqlcmd",
+                                        "stepDatabase": "SQLOps",
+                                        "OnFailAction": "GoToStep",
+                                        "OnFailStep": 1,
+                                        "OnSuccessAction": "GoToStep",
+                                        "OnSuccessStep": 3,
+                                        "OutputFileName": "DatabaseBackup",
+                                        "SubSystem": "CmdExec"
+                                    },
+                                    {
+                                        "step": 3,
+                                        "stepName": "Copy-ToAWSBucket",
+                                        "stepCommand": "S:\\Data_X\\PoSh\\Copy-ToAWSBucket.ps1",
+                                        "CommandType": "posh",
+                                        "OnFailAction": "GoToStep",
+                                        "OnFailStep": 1,
+                                        "OnSuccessAction": "QuitWithSuccess",
+                                        "OutputFileName": "Copy-FULL-ToAWSBucket",
+                                        "SubSystem": "PowerShell"
+                                    }
+                                ],
+                                "Schedules": [
+                                    {
+                                        "scheduleName": "Twice Weekly Backups",
+                                        "IsEnabled": true,
+                                        "StartTimeOfDay": "19:59:00",
+                                        "EndTimeOfDay": "23:59:59",
+                                        "FrequencyInterval": 9,
+                                        "FrequencySubDayTypes": "Once",
+                                        "FrequencySubDayInterval": 0,
+                                        "FrequencyRecurrenceFactor": 1,
+                                        "FrequencyTypes": "Weekly"
+                                    }
+                                ]
+                            },
+                            {
+                                "jobName": "SQLOps - DatabaseBackup - USER_DATABASES - DIFF",
+                                "jobOwner": "sa",
+                                "jobEnabled": true,
+                                "StartStepID": 2,
+                                "jobDescription": "Source: http://ola.hallengren.com",
+                                "Steps": [
+                                    {
+                                        "step": 1,
+                                        "stepName": "SQLOps - Job Failed - RAISE ALERT",
+                                        "stepCommand": "S:\\Data_X\\PoSh\\Email-Alert.ps1 @{JobName = \"$(ESCAPE_SQUOTE(JOBNAME))\"; Server = \"$(ESCAPE_SQUOTE(MACH))\"; Date = \"$(ESCAPE_SQUOTE(STRTDT))\"; Time = \"$(ESCAPE_SQUOTE(STRTTM))\"}",
+                                        "CommandType": "posh",
+                                        "OnFailAction": "QuitWithFailure",
+                                        "OnSuccessAction": "QuitWithFailure",
+                                        "SubSystem": "PowerShell"
+                                    },
+                                    {
+                                        "step": 2,
+                                        "stepName": "SQLOps - DatabaseBackup - USER_DATABASES - DIFF",
+                                        "stepCommand": "EXECUTE [olah].[DatabaseBackup] @Databases = 'USER_DATABASES', @Directory = N'S:\\Data_X\\backup_01\\MSSQL\\Backup', @BackupType = 'DIFF', @Verify = 'Y', @CleanupTime = 48, @CheckSum = 'Y', @LogToTable = 'Y'",
+                                        "CommandType": "sqlcmd",
+                                        "stepDatabase": "SQLOps",
+                                        "OnFailAction": "GoToStep",
+                                        "OnFailStep": 1,
+                                        "OnSuccessAction": "GoToStep",
+                                        "OnSuccessStep": 3,
+                                        "OutputFileName": "DatabaseBackup",
+                                        "SubSystem": "CmdExec"
+                                    },
+                                    {
+                                        "step": 3,
+                                        "stepName": "Copy-ToAWSBucket",
+                                        "stepCommand": "S:\\Data_X\\PoSh\\Copy-ToAWSBucket.ps1 -BackupType DIFF",
+                                        "CommandType": "posh",
+                                        "OnFailAction": "GoToStep",
+                                        "OnFailStep": 1,
+                                        "OnSuccessAction": "QuitWithSuccess",
+                                        "OutputFileName": "Copy-DIFF-ToAWSBucket",
+                                        "SubSystem": "PowerShell"
+                                    }
+                                ],
+                                "Schedules": [
+                                    {
+                                        "scheduleName": "Daily Differential Backups",
+                                        "IsEnabled": true,
+                                        "StartTimeOfDay": "19:59:00",
+                                        "EndTimeOfDay": "23:59:59",
+                                        "FrequencyInterval": 119,
+                                        "FrequencySubDayTypes": "Once",
+                                        "FrequencySubDayInterval": 0,
+                                        "FrequencyRecurrenceFactor": 1,
+                                        "FrequencyTypes": "Weekly"
+                                    }
+                                ]
+                            },
+                            {
+                                "jobName": "SQLOps - DatabaseBackup - USER_DATABASES - LOG",
+                                "jobOwner": "sa",
+                                "jobEnabled": true,
+                                "StartStepID": 2,
+                                "jobDescription": "Source: http://ola.hallengren.com",
+                                "Steps": [
+                                    {
+                                        "step": 1,
+                                        "stepName": "SQLOps - Job Failed - RAISE ALERT",
+                                        "stepCommand": "S:\\Data_X\\PoSh\\Email-Alert.ps1 @{JobName = \"$(ESCAPE_SQUOTE(JOBNAME))\"; Server = \"$(ESCAPE_SQUOTE(MACH))\"; Date = \"$(ESCAPE_SQUOTE(STRTDT))\"; Time = \"$(ESCAPE_SQUOTE(STRTTM))\"}",
+                                        "CommandType": "posh",
+                                        "OnFailAction": "QuitWithFailure",
+                                        "OnSuccessAction": "QuitWithFailure",
+                                        "SubSystem": "PowerShell"
+                                    },
+                                    {
+                                        "step": 2,
+                                        "stepName": "SQLOps - DatabaseBackup - USER_DATABASES - LOG",
+                                        "stepCommand": "EXECUTE [olah].[DatabaseBackup] @Databases = 'USER_DATABASES', @Directory = N'S:\\Data_X\\backup_01\\MSSQL\\Backup', @BackupType = 'LOG', @Verify = 'Y', @CleanupTime = 48, @CheckSum = 'Y', @LogToTable = 'Y'",
+                                        "CommandType": "sqlcmd",
+                                        "stepDatabase": "SQLOps",
+                                        "OnFailAction": "GoToStep",
+                                        "OnFailStep": 1,
+                                        "OnSuccessAction": "GoToStep",
+                                        "OnSuccessStep": 3,
+                                        "OutputFileName": "DatabaseBackup",
+                                        "SubSystem": "CmdExec"
+                                    },
+                                    {
+                                        "step": 3,
+                                        "stepName": "Copy-ToAWSBucket",
+                                        "stepCommand": "S:\\Data_X\\PoSh\\Copy-ToAWSBucket.ps1 -BackupType LOG",
+                                        "CommandType": "posh",
+                                        "OnFailAction": "GoToStep",
+                                        "OnFailStep": 1,
+                                        "OnSuccessAction": "QuitWithSuccess",
+                                        "OutputFileName": "Copy-LOG-ToAWSBucket",
+                                        "SubSystem": "PowerShell"
+                                    }
+                                ],
+                                "Schedules": [
+                                    {
+                                        "scheduleName": "Regular Transaction log Backups",
+                                        "IsEnabled": true,
+                                        "StartTimeOfDay": "03:15:07",
+                                        "EndTimeOfDay": "21:59:59",
+                                        "FrequencyInterval": 1,
+                                        "FrequencySubDayTypes": "Hour",
+                                        "FrequencySubDayInterval": 4,
+                                        "FrequencyRecurrenceFactor": 0,
+                                        "FrequencyTypes": "Daily"
+                                    }
+                                ]
+                            },
+                            {
+                                "jobName": "SQLOps - DatabaseIntegrityCheck - SYSTEM_DATABASES",
+                                "jobOwner": "sa",
+                                "jobEnabled": true,
+                                "StartStepID": 2,
+                                "jobDescription": "Source: http://ola.hallengren.com",
+                                "Steps": [
+                                    {
+                                        "step": 1,
+                                        "stepName": "SQLOps - Job Failed - RAISE ALERT",
+                                        "stepCommand": "S:\\Data_X\\PoSh\\Email-Alert.ps1 @{JobName = \"$(ESCAPE_SQUOTE(JOBNAME))\"; Server = \"$(ESCAPE_SQUOTE(MACH))\"; Date = \"$(ESCAPE_SQUOTE(STRTDT))\"; Time = \"$(ESCAPE_SQUOTE(STRTTM))\"}",
+                                        "CommandType": "posh",
+                                        "OnFailAction": "QuitWithFailure",
+                                        "OnSuccessAction": "QuitWithFailure",
+                                        "SubSystem": "PowerShell"
+                                    },
+                                    {
+                                        "step": 2,
+                                        "stepName": "SQLOps - DatabaseIntegrityCheck - SYSTEM_DATABASES",
+                                        "stepCommand": "EXECUTE [olah].[DatabaseIntegrityCheck] @Databases = 'SYSTEM_DATABASES', @LogToTable = 'Y'",
+                                        "CommandType": "sqlcmd",
+                                        "stepDatabase": "SQLOps",
+                                        "OnFailAction": "GoToStep",
+                                        "OnFailStep": 1,
+                                        "OnSuccessAction": "QuitWithSuccess",
+                                        "OutputFileName": "DatabaseIntegrityCheck",
+                                        "SubSystem": "CmdExec"
+                                    }
+                                ],
+                                "Schedules": [
+                                    {
+                                        "scheduleName": "DBCC SYSTEM_DATABASES",
+                                        "IsEnabled": true,
+                                        "StartTimeOfDay": "19:37:11",
+                                        "EndTimeOfDay": "23:59:59",
+                                        "FrequencyInterval": 1,
+                                        "FrequencySubDayTypes": "Once",
+                                        "FrequencySubDayInterval": 0,
+                                        "FrequencyRecurrenceFactor": 1,
+                                        "FrequencyTypes": "Weekly"
+                                    }
+                                ]
+                            },
+                            {
+                                "jobName": "SQLOps - DatabaseIntegrityCheck - USER_DATABASES",
+                                "jobOwner": "sa",
+                                "jobEnabled": true,
+                                "StartStepID": 2,
+                                "jobDescription": "Source: http://ola.hallengren.com",
+                                "Steps": [
+                                    {
+                                        "step": 1,
+                                        "stepName": "SQLOps - Job Failed - RAISE ALERT",
+                                        "stepCommand": "S:\\Data_X\\PoSh\\Email-Alert.ps1 @{JobName = \"$(ESCAPE_SQUOTE(JOBNAME))\"; Server = \"$(ESCAPE_SQUOTE(MACH))\"; Date = \"$(ESCAPE_SQUOTE(STRTDT))\"; Time = \"$(ESCAPE_SQUOTE(STRTTM))\"}",
+                                        "CommandType": "posh",
+                                        "OnFailAction": "QuitWithFailure",
+                                        "OnSuccessAction": "QuitWithFailure",
+                                        "SubSystem": "PowerShell"
+                                    },
+                                    {
+                                        "step": 2,
+                                        "stepName": "SQLOps - DatabaseIntegrityCheck - USER_DATABASES",
+                                        "stepCommand": "EXECUTE [olah].[DatabaseIntegrityCheck] @Databases = 'USER_DATABASES', @LogToTable = 'Y'",
+                                        "CommandType": "sqlcmd",
+                                        "stepDatabase": "SQLOps",
+                                        "OnFailAction": "GoToStep",
+                                        "OnFailStep": 1,
+                                        "OnSuccessAction": "QuitWithSuccess",
+                                        "OutputFileName": "DatabaseIntegrityCheck",
+                                        "SubSystem": "CmdExec"
+                                    }
+                                ],
+                                "Schedules": [
+                                    {
+                                        "scheduleName": "DBCC USER_DATABASES",
+                                        "IsEnabled": true,
+                                        "StartTimeOfDay": "18:17:09",
+                                        "EndTimeOfDay": "23:59:59",
+                                        "FrequencyInterval": 64,
+                                        "FrequencySubDayTypes": "Once",
+                                        "FrequencySubDayInterval": 0,
+                                        "FrequencyRecurrenceFactor": 1,
+                                        "FrequencyTypes": "Weekly"
+                                    }
+                                ]
+                            },
+                            {
+                                "jobName": "SQLOps - IndexOptimize - USER_DATABASES",
+                                "jobOwner": "sa",
+                                "jobEnabled": true,
+                                "StartStepID": 2,
+                                "jobDescription": "Source: http://ola.hallengren.com",
+                                "Steps": [
+                                    {
+                                        "step": 1,
+                                        "stepName": "SQLOps - Job Failed - RAISE ALERT",
+                                        "stepCommand": "S:\\Data_X\\PoSh\\Email-Alert.ps1 @{JobName = \"$(ESCAPE_SQUOTE(JOBNAME))\"; Server = \"$(ESCAPE_SQUOTE(MACH))\"; Date = \"$(ESCAPE_SQUOTE(STRTDT))\"; Time = \"$(ESCAPE_SQUOTE(STRTTM))\"}",
+                                        "CommandType": "posh",
+                                        "OnFailAction": "QuitWithFailure",
+                                        "OnSuccessAction": "QuitWithFailure",
+                                        "SubSystem": "PowerShell"
+                                    },
+                                    {
+                                        "step": 2,
+                                        "stepName": "SQLOps - IndexOptimize - USER_DATABASES",
+                                        "stepCommand": "EXECUTE [olah].[IndexOptimize] @Databases = 'USER_DATABASES', @LogToTable = 'Y'",
+                                        "CommandType": "sqlcmd",
+                                        "stepDatabase": "SQLOps",
+                                        "OnFailAction": "GoToStep",
+                                        "OnFailStep": 1,
+                                        "OnSuccessAction": "QuitWithSuccess",
+                                        "OutputFileName": "IndexOptimize",
+                                        "SubSystem": "CmdExec"
+                                    }
+                                ],
+                                "Schedules": [
+                                    {
+                                        "scheduleName": "IndexOptimize USER_DATABASES",
+                                        "IsEnabled": true,
+                                        "StartTimeOfDay": "00:03:03",
+                                        "EndTimeOfDay": "23:59:59",
+                                        "FrequencyInterval": 1,
+                                        "FrequencySubDayTypes": "Once",
+                                        "FrequencySubDayInterval": 0,
+                                        "FrequencyRecurrenceFactor": 1,
+                                        "FrequencyTypes": "Weekly"
+                                    }
+                                ]
+                            },
+                            {
+                                "jobName": "SQLOps - sp_delete_backuphistory",
+                                "jobOwner": "sa",
+                                "jobEnabled": true,
+                                "StartStepID": 2,
+                                "jobDescription": "Source: http://ola.hallengren.com",
+                                "Steps": [
+                                    {
+                                        "step": 1,
+                                        "stepName": "SQLOps - Job Failed - RAISE ALERT",
+                                        "stepCommand": "S:\\Data_X\\PoSh\\Email-Alert.ps1 @{JobName = \"$(ESCAPE_SQUOTE(JOBNAME))\"; Server = \"$(ESCAPE_SQUOTE(MACH))\"; Date = \"$(ESCAPE_SQUOTE(STRTDT))\"; Time = \"$(ESCAPE_SQUOTE(STRTTM))\"}",
+                                        "CommandType": "posh",
+                                        "OnFailAction": "QuitWithFailure",
+                                        "OnSuccessAction": "QuitWithFailure",
+                                        "SubSystem": "PowerShell"
+                                    },
+                                    {
+                                        "step": 2,
+                                        "stepName": "SQLOps - sp_delete_backuphistory",
+                                        "stepCommand": "DECLARE @CleanupDate datetime SET @CleanupDate = DATEADD(dd,-30,GETDATE()) EXECUTE dbo.sp_delete_backuphistory @oldest_date = @CleanupDate",
+                                        "CommandType": "sqlcmd",
+                                        "stepDatabase": "msdb",
+                                        "OnFailAction": "GoToStep",
+                                        "OnFailStep": 1,
+                                        "OnSuccessAction": "QuitWithSuccess",
+                                        "OutputFileName": "sp_delete_backuphistory",
+                                        "SubSystem": "CmdExec"
+                                    }
+                                ],
+                                "Schedules": [
+                                    {
+                                        "scheduleName": "Maintenance - Weekly Cleanup",
+                                        "IsEnabled": true,
+                                        "StartTimeOfDay": "17:17:17",
+                                        "EndTimeOfDay": "23:59:59",
+                                        "FrequencyInterval": 64,
+                                        "FrequencySubDayTypes": "Once",
+                                        "FrequencySubDayInterval": 0,
+                                        "FrequencyRecurrenceFactor": 1,
+                                        "FrequencyTypes": "Weekly"
+                                    }
+                                ]
+                            },
+                            {
+                                "jobName": "SQLOps - sp_purge_jobhistory",
+                                "jobOwner": "sa",
+                                "jobEnabled": true,
+                                "StartStepID": 2,
+                                "jobDescription": "Source: http://ola.hallengren.com",
+                                "Steps": [
+                                    {
+                                        "step": 1,
+                                        "stepName": "SQLOps - Job Failed - RAISE ALERT",
+                                        "stepCommand": "S:\\Data_X\\PoSh\\Email-Alert.ps1 @{JobName = \"$(ESCAPE_SQUOTE(JOBNAME))\"; Server = \"$(ESCAPE_SQUOTE(MACH))\"; Date = \"$(ESCAPE_SQUOTE(STRTDT))\"; Time = \"$(ESCAPE_SQUOTE(STRTTM))\"}",
+                                        "CommandType": "posh",
+                                        "OnFailAction": "QuitWithFailure",
+                                        "OnSuccessAction": "QuitWithFailure",
+                                        "SubSystem": "PowerShell"
+                                    },
+                                    {
+                                        "step": 2,
+                                        "stepName": "SQLOps - sp_purge_jobhistory",
+                                        "stepCommand": "DECLARE @CleanupDate datetime SET @CleanupDate = DATEADD(dd,-30,GETDATE()) EXECUTE dbo.sp_purge_jobhistory @oldest_date = @CleanupDate",
+                                        "CommandType": "sqlcmd",
+                                        "stepDatabase": "msdb",
+                                        "OnFailAction": "GoToStep",
+                                        "OnFailStep": 1,
+                                        "OnSuccessAction": "QuitWithSuccess",
+                                        "OutputFileName": "sp_purge_jobhistory",
+                                        "SubSystem": "CmdExec"
+                                    }
+                                ],
+                                "Schedules": [
+                                    {
+                                        "scheduleName": "Maintenance - Weekly Cleanup",
+                                        "IsEnabled": true,
+                                        "StartTimeOfDay": "17:17:17",
+                                        "EndTimeOfDay": "23:59:59",
+                                        "FrequencyInterval": 64,
+                                        "FrequencySubDayTypes": "Once",
+                                        "FrequencySubDayInterval": 0,
+                                        "FrequencyRecurrenceFactor": 1,
+                                        "FrequencyTypes": "Weekly"
+                                    }
+                                ]
+                            },
+                            {
+                                "jobName": "SQLOps - Output File Cleanup",
+                                "jobOwner": "sa",
+                                "jobEnabled": true,
+                                "StartStepID": 2,
+                                "jobDescription": "Source: http://ola.hallengren.com",
+                                "Steps": [
+                                    {
+                                        "step": 1,
+                                        "stepName": "SQLOps - Job Failed - RAISE ALERT",
+                                        "stepCommand": "S:\\Data_X\\PoSh\\Email-Alert.ps1 @{JobName = \"$(ESCAPE_SQUOTE(JOBNAME))\"; Server = \"$(ESCAPE_SQUOTE(MACH))\"; Date = \"$(ESCAPE_SQUOTE(STRTDT))\"; Time = \"$(ESCAPE_SQUOTE(STRTTM))\"}",
+                                        "CommandType": "posh",
+                                        "OnFailAction": "QuitWithFailure",
+                                        "OnSuccessAction": "QuitWithFailure",
+                                        "SubSystem": "PowerShell"
+                                    },
+                                    {
+                                        "step": 2,
+                                        "stepName": "SQLOps - Output File Cleanup",
+                                        "stepCommand": "For /F \"tokens=1 delims=\" %v In ('ForFiles /P \"$(ESCAPE_SQUOTE(SQLLOGDIR))\" /m *_*_*_*.txt /d -30 2^>^&1') do if EXIST \"$(ESCAPE_SQUOTE(SQLLOGDIR))\"\\%v echo del \"$(ESCAPE_SQUOTE(SQLLOGDIR))\"\\%v& del \"$(ESCAPE_SQUOTE(SQLLOGDIR))\"\\%v",
+                                        "CommandType": "cmd",
+                                        "stepDatabase": "",
+                                        "OnFailAction": "GoToStep",
+                                        "OnFailStep": 1,
+                                        "OnSuccessAction": "QuitWithSuccess",
+                                        "OutputFileName": "OutputFileCleanup",
+                                        "SubSystem": "CmdExec"
+                                    }
+                                ],
+                                "Schedules": [
+                                    {
+                                        "scheduleName": "Maintenance - Weekly Cleanup",
+                                        "IsEnabled": true,
+                                        "StartTimeOfDay": "17:17:17",
+                                        "EndTimeOfDay": "23:59:59",
+                                        "FrequencyInterval": 64,
+                                        "FrequencySubDayTypes": "Once",
+                                        "FrequencySubDayInterval": 0,
+                                        "FrequencyRecurrenceFactor": 1,
+                                        "FrequencyTypes": "Weekly"
+                                    }
+                                ]
+                            },
+                            {
+                                "jobName": "SQLOps - CommandLog Cleanup",
+                                "jobOwner": "sa",
+                                "jobEnabled": true,
+                                "StartStepID": 2,
+                                "jobDescription": "Source: http://ola.hallengren.com",
+                                "Steps": [
+                                    {
+                                        "step": 1,
+                                        "stepName": "SQLOps - Job Failed - RAISE ALERT",
+                                        "stepCommand": "S:\\Data_X\\PoSh\\Email-Alert.ps1 @{JobName = \"$(ESCAPE_SQUOTE(JOBNAME))\"; Server = \"$(ESCAPE_SQUOTE(MACH))\"; Date = \"$(ESCAPE_SQUOTE(STRTDT))\"; Time = \"$(ESCAPE_SQUOTE(STRTTM))\"}",
+                                        "CommandType": "posh",
+                                        "OnFailAction": "QuitWithFailure",
+                                        "OnSuccessAction": "QuitWithFailure",
+                                        "SubSystem": "PowerShell"
+                                    },
+                                    {
+                                        "step": 2,
+                                        "stepName": "SQLOps - CommandLog Cleanup",
+                                        "stepCommand": "DELETE FROM [olah].[CommandLog] WHERE StartTime < DATEADD(dd,-30,GETDATE())",
+                                        "CommandType": "sqlcmd",
+                                        "stepDatabase": "SQLOps",
+                                        "OnFailAction": "GoToStep",
+                                        "OnFailStep": 1,
+                                        "OnSuccessAction": "QuitWithSuccess",
+                                        "OutputFileName": "CommandLogCleanup",
+                                        "SubSystem": "CmdExec"
+                                    }
+                                ],
+                                "Schedules": [
+                                    {
+                                        "scheduleName": "Sunday Evening",
+                                        "IsEnabled": true,
+                                        "StartTimeOfDay": "19:37:23",
+                                        "EndTimeOfDay": "23:59:59",
+                                        "FrequencyInterval": 1,
+                                        "FrequencySubDayTypes": "Once",
+                                        "FrequencySubDayInterval": 0,
+                                        "FrequencyRecurrenceFactor": 1,
+                                        "FrequencyTypes": "Weekly"
+                                    }
+                                ]
+                            },
+                            {
+                                "jobName": "SQLOps - Record waitstats",
+                                "jobOwner": "sa",
+                                "jobEnabled": true,
+                                "StartStepID": 2,
+                                "jobDescription": "Collects waitstats for monitoring.",
+                                "Steps": [
+                                    {
+                                        "step": 1,
+                                        "stepName": "SQLOps - Job Failed - RAISE ALERT",
+                                        "stepCommand": "S:\\Data_X\\PoSh\\Email-Alert.ps1 @{JobName = \"$(ESCAPE_SQUOTE(JOBNAME))\"; Server = \"$(ESCAPE_SQUOTE(MACH))\"; Date = \"$(ESCAPE_SQUOTE(STRTDT))\"; Time = \"$(ESCAPE_SQUOTE(STRTTM))\"}",
+                                        "CommandType": "posh",
+                                        "OnFailAction": "QuitWithFailure",
+                                        "OnSuccessAction": "QuitWithFailure",
+                                        "SubSystem": "PowerShell"
+                                    },
+                                    {
+                                        "step": 2,
+                                        "stepName": "SQLOps - Record waitstats",
+                                        "stepCommand": "EXECUTE [dbo].[usp_collect_WaitStats]",
+                                        "CommandType": "sqlcmd",
+                                        "stepDatabase": "SQLOps",
+                                        "OnFailAction": "GoToStep",
+                                        "OnFailStep": 1,
+                                        "OnSuccessAction": "QuitWithSuccess",
+                                        "OutputFileName": "RecordWaitStats",
+                                        "SubSystem": "CmdExec"
+                                    }
+                                ],
+                                "Schedules": [
+                                    {
+                                        "scheduleName": "Waitstats collection at 15 minute intervals",
+                                        "IsEnabled": true,
+                                        "StartTimeOfDay": "00:00:00",
+                                        "EndTimeOfDay": "23:59:59",
+                                        "FrequencyInterval": 1,
+                                        "FrequencySubDayTypes": "Minute",
+                                        "FrequencySubDayInterval": 15,
+                                        "FrequencyRecurrenceFactor": 0,
+                                        "FrequencyTypes": "Daily"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "step": 10.0,
+            "script": "deploy-accessCtrls.ps1",
+            "description": "deploys Service Access Controls.",
+            "parameters": [
+                {
+                    "Name": "AccessCtrlParam",
+                    "Value": {
+                        "vault": [
+                            {
+                                "uri": "http://vault.com:8200",
+                                "backend": "team_aws_direct_operations_dba_generic",
+                                "alias": "system"
+                            }
+                        ],
+                        "credentials": [
+                            {
+                                "Name": "SVC_SQLSR_PROXY_NPE",
+                                "Domain": "AVIVAHOME",
+                                "Identity": "SVC_SQLSR_PROXY_NPE"
+                            },
+                            {
+                                "Name": "SVC_RACE_PROXY_NPE",
+                                "Domain": "AVIVAHOME",
+                                "Identity": "SVC_RACE_PROXY_NPE"
+                            },
+                            {
+                                "Name": "SVC_NEXUS_PROXY_NPE",
+                                "Domain": "AVIVAHOME",
+                                "Identity": "SVC_NEXUS_PROXY_NPE"
+                            }
+                        ],
+                        "logins": [
+                            {
+                                "Name": "SplunkUser",
+                                "LoginType": "SqlLogin",
+                                "PasswordPolicyEnforced": true,
+                                "SetSecret": false,
+                                "DefaultDatabase": "master",
+                                "sid": [
+                                    "0x62",
+                                    "0xfb",
+                                    "0x69",
+                                    "0x9e",
+                                    "0x8b",
+                                    "0x6c",
+                                    "0x92",
+                                    "0x47",
+                                    "0xa0",
+                                    "0x49",
+                                    "0x95",
+                                    "0xd2",
+                                    "0xf0",
+                                    "0xd",
+                                    "0x66",
+                                    "0xe1"
+                                ],
+                                "IsDisabled": false,
+                                "databases": [
+                                    {
+                                        "database": "SQLOps",
+                                        "UserName": "SplunkUser",
+                                        "roles": [
+                                            {
+                                                "roleName": "SplunkMonitor"
+                                            }
+                                        ]
+                                    }
+                                ],
+                                "Language": "us_english"
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "step": 10.1,
+            "script": "deploy-accessCtrls.ps1",
+            "description": "deploys Service Access Controls.",
+            "parameters": [
+                {
+                    "Name": "AccessCtrlParam",
+                    "Value": {
+                        "vault": [
+                            {
+                                "uri": "http://vault.com:8200",
+                                "backend": "team_aws_direct_operations_dba_generic",
+                                "alias": "REF_BUILD"
+                            }
+                        ],
+                        "credentials": [
+                            {
+                                "Name": "SVC_SQLSR_PROXY_NPE",
+                                "Domain": "AVIVAHOME",
+                                "Identity": "SVC_SQLSR_PROXY_NPE"
+                            },
+                            {
+                                "Name": "SVC_RACE_PROXY_NPE",
+                                "Domain": "AVIVAHOME",
+                                "Identity": "SVC_RACE_PROXY_NPE"
+                            },
+                            {
+                                "Name": "SVC_NEXUS_PROXY_NPE",
+                                "Domain": "AVIVAHOME",
+                                "Identity": "SVC_NEXUS_PROXY_NPE"
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "step": 10.2,
+            "script": "deploy-accessCtrls.ps1",
+            "description": "deploys SQL Server Access Controls.",
+            "parameters": [
+                {
+                    "Name": "AccessCtrlParam",
+                    "Value": {
+                        "vault": [
+                            {
+                                "uri": "http://vault.com:8200",
+                                "backend": "team_aws_direct_operations_dba_generic",
+                                "alias": "REF_BUILDApplication"
+                            }
+                        ],
+                        "logins": [
+                            {
+                                "Name": "New-deployer",
+                                "LoginType": "SqlLogin",
+                                "SetSecret": false,
+                                "DefaultDatabase": "master",
+                                "sid": [
+                                    "0x6B",
+                                    "0xFB",
+                                    "0x69",
+                                    "0x9E",
+                                    "0x8B",
+                                    "0x3C",
+                                    "0x92",
+                                    "0x47",
+                                    "0xA0",
+                                    "0x49",
+                                    "0x95",
+                                    "0xD2",
+                                    "0xF0",
+                                    "0xAD",
+                                    "0x66",
+                                    "0xE8"
+                                ],
+                                "IsDisabled": false,
+                                "Language": "us_english",
+                                "ServerPermissionSet": [
+                                    "Shutdown",
+                                    "AlterTrace",
+                                    "ViewServerState",
+                                    "ViewAnyDatabase",
+                                    "ViewAnyDefinition",
+                                    "ConnectAnyDatabase"
+                                ]
+                            },
+                            {
+                                "Name": "nexusAdmin",
+                                "LoginType": "SqlLogin",
+                                "SetSecret": true,
+                                "DefaultDatabase": "nexus",
+                                "sid": [
+                                    "0x97",
+                                    "0xAE",
+                                    "0xAB",
+                                    "0x9E",
+                                    "0x8B",
+                                    "0x6C",
+                                    "0x92",
+                                    "0x47",
+                                    "0xA0",
+                                    "0x49",
+                                    "0x95",
+                                    "0xD2",
+                                    "0xF7",
+                                    "0x0D",
+                                    "0x66",
+                                    "0xE1"
+                                ],
+                                "IsDisabled": false,
+                                "Language": "us_english",
+                                "databases": [
+                                    {
+                                        "database": "nexus",
+                                        "UserName": "nexusAdmin",
+                                        "DefaultSchema": "dbo",
+                                        "roles": [
+                                            {
+                                                "roleName": "db_datawriter"
+                                            },
+                                            {
+                                                "roleName": "app_dataAdmin",
+                                                "Owner": "dbo",
+                                                "roles": [
+                                                    "db_ddladmin",
+                                                    "db_securityadmin",
+                                                    "db_backupoperator",
+                                                    "db_datareader"
+                                                ],
+                                                "DatabasePermissionSet": [
+                                                    "ViewDatabaseState",
+                                                    "ViewDefinition",
+                                                    "AlterAnyUser",
+                                                    "Execute"
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "database": "msdb",
+                                        "UserName": "nexusAdmin",
+                                        "DefaultSchema": "dbo",
+                                        "roles": [
+                                            {
+                                                "roleName": "SQLAgentUserRole",
+                                                "Purpose": "Manage application Jobs"
+                                            }
+                                        ]
+                                    }
+                                ]
+                            },
+                            {
+                                "Name": "nexusUser",
+                                "LoginType": "SqlLogin",
+                                "SetSecret": true,
+                                "DefaultDatabase": "nexus",
+                                "IsDisabled": false,
+                                "Language": "us_english",
+                                "databases": [
+                                    {
+                                        "database": "nexus",
+                                        "UserName": "nexusUser",
+                                        "DefaultSchema": "dbo",
+                                        "roles": [
+                                            {
+                                                "roleName": "app_datareadwrite",
+                                                "Owner": "dbo",
+                                                "roles": [
+                                                    "db_datawriter",
+                                                    "db_datareader"
+                                                ],
+                                                "DatabasePermissionSet": [
+                                                    "Execute"
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                ]
+                            },
+                            {
+                                "Name": "nexusRead",
+                                "LoginType": "SqlLogin",
+                                "SetSecret": true,
+                                "DefaultDatabase": "nexus",
+                                "IsDisabled": false,
+                                "Language": "us_english",
+                                "databases": [
+                                    {
+                                        "database": "nexus",
+                                        "UserName": "nexusRead",
+                                        "DefaultSchema": "dbo",
+                                        "roles": [
+                                            {
+                                                "roleName": "app_dataread",
+                                                "Owner": "dbo",
+                                                "roles": [
+                                                    "db_datareader"
+                                                ],
+                                                "DatabasePermissionSet": [
+                                                    "Execute"
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "step": 12,
+            "script": "deploy-SQLJobs.ps1",
+            "description": "deploys SQL Agent Jobs for client database.",
+            "repository": {
+                "uri": "https://github.com/SQLHorizons/sql_functional_tests.git",
+                "submodules": true,
+                "branch": "master",
+                "destination": "S:/Data_X/Packages/sql_functional_tests"
+            },
+            "parameters": [
+                {
+                    "Name": "JobsParam",
+                    "Value": {
+                        "Proxies": [
+                            {
+                                "Name": "SVC_SQLSR_PROXY_NPE",
+                                "Identity": "SVC_SQLSR_PROXY_NPE",
+                                "Enabled": true,
+                                "SubSystems": [
+                                    "SSIS",
+                                    "PowerShell"
+                                ]
+                            },
+                            {
+                                "Name": "SVC_NEXUS_PROXY_NPE",
+                                "Identity": "SVC_NEXUS_PROXY_NPE",
+                                "Enabled": true,
+                                "SubSystems": [
+                                    "SSIS",
+                                    "CmdExec"
+                                ]
+                            }
+                        ],
+                        "Jobs": [
+                            {
+                                "jobName": "nexus - export data - SSIS",
+                                "jobOwner": "sa",
+                                "jobEnabled": true,
+                                "StartStepID": 2,
+                                "Steps": [
+                                    {
+                                        "step": 1,
+                                        "stepName": "SQLOps - Job Failed - RAISE ALERT",
+                                        "stepCommand": "S:\\Data_X\\PoSh\\Email-Alert.ps1 @{JobName = \"$(ESCAPE_SQUOTE(JOBNAME))\"; Server = \"$(ESCAPE_SQUOTE(MACH))\"; Date = \"$(ESCAPE_SQUOTE(STRTDT))\"; Time = \"$(ESCAPE_SQUOTE(STRTTM))\"}",
+                                        "CommandType": "posh",
+                                        "OnFailAction": "QuitWithFailure",
+                                        "OnSuccessAction": "QuitWithFailure",
+                                        "SubSystem": "PowerShell"
+                                    },
+                                    {
+                                        "step": 2,
+                                        "stepName": "nexus - export data",
+                                        "stepCommand": "S:/Data_X/Packages/sql_functional_tests/ssis/export/ssis_export_test.dtsx",
+                                        "CommandType": "SSIS",
+                                        "OnFailAction": "GoToStep",
+                                        "OnFailStep": 1,
+                                        "OnSuccessAction": "QuitWithSuccess",
+                                        "ProxyName": "SVC_NEXUS_PROXY_NPE",
+                                        "SubSystem": "Ssis"
+                                    }
+                                ],
+                                "Schedules": [
+                                    {
+                                        "scheduleName": "Daily 06:00 AM",
+                                        "IsEnabled": true,
+                                        "StartTimeOfDay": "06:00:17",
+                                        "EndTimeOfDay": "23:59:59",
+                                        "FrequencyInterval": 1,
+                                        "FrequencySubDayTypes": "Once",
+                                        "FrequencySubDayInterval": 0,
+                                        "FrequencyRecurrenceFactor": 0,
+                                        "FrequencyTypes": "Daily"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "step": 14,
+            "script": "invoke-sqlCommand.ps1",
+            "description": "invokes t-sql scripts against the sql instance.",
+            "parameters": [
+                {
+                    "Name": "ScriptParams",
+                    "Value": {
+                        "Scripts": [
+                            {
+                                "link": "dsn",
+                                "query": "PRINT @@SERVERNAME"
+                            },
+                            {
+                                "link": "server",
+                                "query": "PRINT @@VERSION"
+                            },
+                            {
+                                "link": "server",
+                                "file": "./query.sql"
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "step": 15,
+            "script": "deploy-cisCtrls.ps1",
+            "description": "deploys the CIS security controls.",
+            "parameters": [
+                {
+                    "Name": "CISCtrlParam",
+                    "Value": [
+                        {
+                            "Database": "SQLOps",
+                            "triggers": [
+                                {
+                                    "Name": "audit_ctrl_2.1",
+                                    "Enabled": true,
+                                    "Description": "Source: https://confluence.aviva.co.uk/display/UKDS/2.1+Ad+Hoc+Distributed+Queries",
+                                    "Header": [
+                                        {
+                                            "ON": "ALL SERVER",
+                                            "FOR": "DDL_SERVER_LEVEL_EVENTS"
+                                        }
+                                    ],
+                                    "Body": {
+                                        "Predicate": [
+                                            {
+                                                "EVENT_INSTANCE": "PropertyName",
+                                                "Operator": "=",
+                                                "Condition": "Ad Hoc Distributed Queries"
+                                            },
+                                            {
+                                                "EVENT_INSTANCE": "PropertyValue",
+                                                "Operator": "=",
+                                                "Condition": 1
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "Name": "audit_ctrl_2.2",
+                                    "Enabled": true,
+                                    "Description": "Source: https://confluence.aviva.co.uk/display/UKDS/2.2+CLR+Enabled",
+                                    "Header": [
+                                        {
+                                            "ON": "ALL SERVER",
+                                            "FOR": "DDL_SERVER_LEVEL_EVENTS"
+                                        }
+                                    ],
+                                    "Body": {
+                                        "Predicate": [
+                                            {
+                                                "EVENT_INSTANCE": "PropertyName",
+                                                "Operator": "=",
+                                                "Condition": "clr enabled"
+                                            },
+                                            {
+                                                "EVENT_INSTANCE": "PropertyValue",
+                                                "Operator": "=",
+                                                "Condition": 1
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "Name": "audit_ctrl_2.3",
+                                    "Enabled": true,
+                                    "Description": "Source: https://confluence.aviva.co.uk/display/UKDS/2.3+Cross+DB+Ownership+Chaining",
+                                    "Header": [
+                                        {
+                                            "ON": "ALL SERVER",
+                                            "FOR": "DDL_SERVER_LEVEL_EVENTS"
+                                        }
+                                    ],
+                                    "Body": {
+                                        "Predicate": [
+                                            {
+                                                "EVENT_INSTANCE": "PropertyName",
+                                                "Operator": "=",
+                                                "Condition": "cross db ownership chaining"
+                                            },
+                                            {
+                                                "EVENT_INSTANCE": "PropertyValue",
+                                                "Operator": "=",
+                                                "Condition": 1
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "Name": "audit_ctrl_2.4",
+                                    "Enabled": true,
+                                    "Description": "Source: https://confluence.aviva.co.uk/display/UKDS/2.4+Database+Mail+XPs",
+                                    "Header": [
+                                        {
+                                            "ON": "ALL SERVER",
+                                            "FOR": "DDL_SERVER_LEVEL_EVENTS"
+                                        }
+                                    ],
+                                    "Body": {
+                                        "Predicate": [
+                                            {
+                                                "EVENT_INSTANCE": "PropertyName",
+                                                "Operator": "=",
+                                                "Condition": "Database Mail XPs"
+                                            },
+                                            {
+                                                "EVENT_INSTANCE": "PropertyValue",
+                                                "Operator": "=",
+                                                "Condition": 1
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "Name": "audit_ctrl_2.5",
+                                    "Enabled": true,
+                                    "Description": "Source: https://confluence.aviva.co.uk/display/UKDS/2.5+Ole+Automation+Procedures",
+                                    "Header": [
+                                        {
+                                            "ON": "ALL SERVER",
+                                            "FOR": "DDL_SERVER_LEVEL_EVENTS"
+                                        }
+                                    ],
+                                    "Body": {
+                                        "Predicate": [
+                                            {
+                                                "EVENT_INSTANCE": "PropertyName",
+                                                "Operator": "=",
+                                                "Condition": "Ole Automation Procedures"
+                                            },
+                                            {
+                                                "EVENT_INSTANCE": "PropertyValue",
+                                                "Operator": "=",
+                                                "Condition": 1
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "Name": "audit_ctrl_2.6",
+                                    "Enabled": true,
+                                    "Description": "Source: https://confluence.aviva.co.uk/display/UKDS/2.6+Remote+Access",
+                                    "Header": [
+                                        {
+                                            "ON": "ALL SERVER",
+                                            "FOR": "DDL_SERVER_LEVEL_EVENTS"
+                                        }
+                                    ],
+                                    "Body": {
+                                        "Predicate": [
+                                            {
+                                                "EVENT_INSTANCE": "PropertyName",
+                                                "Operator": "=",
+                                                "Condition": "remote access"
+                                            },
+                                            {
+                                                "EVENT_INSTANCE": "PropertyValue",
+                                                "Operator": "=",
+                                                "Condition": 1
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "Name": "audit_ctrl_2.7",
+                                    "Enabled": true,
+                                    "Description": "Source: https://confluence.aviva.co.uk/display/UKDS/2.7+Remote+Admin+Connections",
+                                    "Header": [
+                                        {
+                                            "ON": "ALL SERVER",
+                                            "FOR": "DDL_SERVER_LEVEL_EVENTS"
+                                        }
+                                    ],
+                                    "Body": {
+                                        "Predicate": [
+                                            {
+                                                "EVENT_INSTANCE": "PropertyName",
+                                                "Operator": "=",
+                                                "Condition": "remote admin connections"
+                                            },
+                                            {
+                                                "EVENT_INSTANCE": "PropertyValue",
+                                                "Operator": "=",
+                                                "Condition": 1
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "Name": "audit_ctrl_2.8",
+                                    "Enabled": true,
+                                    "Description": "Source: https://confluence.aviva.co.uk/display/UKDS/2.8+Scan+For+Start-up+Process",
+                                    "Header": [
+                                        {
+                                            "ON": "ALL SERVER",
+                                            "FOR": "DDL_SERVER_LEVEL_EVENTS"
+                                        }
+                                    ],
+                                    "Body": {
+                                        "Predicate": [
+                                            {
+                                                "EVENT_INSTANCE": "PropertyName",
+                                                "Operator": "=",
+                                                "Condition": "scan for startup procs"
+                                            },
+                                            {
+                                                "EVENT_INSTANCE": "PropertyValue",
+                                                "Operator": "=",
+                                                "Condition": 1
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "Name": "audit_ctrl_2.9",
+                                    "Enabled": true,
+                                    "Description": "Source: https://confluence.aviva.co.uk/pages/viewpage.action?pageId=164991877",
+                                    "Header": [
+                                        {
+                                            "ON": "ALL SERVER",
+                                            "FOR": "ALTER_DATABASE"
+                                        }
+                                    ],
+                                    "Body": {
+                                        "Predicate": [
+                                            {
+                                                "EVENT_INSTANCE": "TSQLCommand/CommandText",
+                                                "Operator": "LIKE",
+                                                "Condition": "% SET TRUSTWORTHY ON"
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "Name": "audit_ctrl_2.13",
+                                    "Enabled": true,
+                                    "Description": "Source: https://confluence.aviva.co.uk/display/UKDS/2.13+sysadmin+Login+Account",
+                                    "Header": [
+                                        {
+                                            "ON": "ALL SERVER",
+                                            "FOR": "DDL_SERVER_LEVEL_EVENTS"
+                                        }
+                                    ],
+                                    "Body": {
+                                        "Predicate": [
+                                            {
+                                                "EVENT_INSTANCE": "SID",
+                                                "Operator": "=",
+                                                "Condition": "AQ=="
+                                            },
+                                            {
+                                                "EVENT_INSTANCE": "EventType",
+                                                "Operator": "=",
+                                                "Condition": "ALTER_LOGIN"
+                                            },
+                                            {
+                                                "EVENT_INSTANCE": "TSQLCommand/CommandText",
+                                                "Operator": "LIKE",
+                                                "Condition": "%ENABLE%"
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "Name": "audit_ctrl_2.15",
+                                    "Enabled": true,
+                                    "Description": "Source: https://confluence.aviva.co.uk/display/UKDS/2.15+xp_cmdshell",
+                                    "Header": [
+                                        {
+                                            "ON": "ALL SERVER",
+                                            "FOR": "DDL_SERVER_LEVEL_EVENTS"
+                                        }
+                                    ],
+                                    "Body": {
+                                        "Predicate": [
+                                            {
+                                                "EVENT_INSTANCE": "PropertyName",
+                                                "Operator": "=",
+                                                "Condition": "xp_cmdshell"
+                                            },
+                                            {
+                                                "EVENT_INSTANCE": "PropertyValue",
+                                                "Operator": "=",
+                                                "Condition": 1
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "Name": "audit_ctrl_2.16",
+                                    "Enabled": true,
+                                    "Description": "Source: https://confluence.aviva.co.uk/display/UKDS/2.16+Database+AUTO_CLOSE+Option",
+                                    "Header": [
+                                        {
+                                            "ON": "ALL SERVER",
+                                            "FOR": "ALTER_DATABASE"
+                                        }
+                                    ],
+                                    "Body": {
+                                        "Predicate": [
+                                            {
+                                                "EVENT_INSTANCE": "TSQLCommand/CommandText",
+                                                "Operator": "LIKE",
+                                                "Condition": "% AUTO_CLOSE ON %"
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "Name": "audit_ctrl_2.17",
+                                    "Enabled": true,
+                                    "Description": "Source: https://confluence.aviva.co.uk/pages/viewpage.action?pageId=164991962",
+                                    "Header": [
+                                        {
+                                            "ON": "ALL SERVER",
+                                            "FOR": "DDL_SERVER_LEVEL_EVENTS"
+                                        }
+                                    ],
+                                    "Body": {
+                                        "Predicate": [
+                                            {
+                                                "EVENT_INSTANCE": "EventType",
+                                                "Operator": "=",
+                                                "Condition": "CREATE_LOGIN"
+                                            },
+                                            {
+                                                "EVENT_INSTANCE": "ObjectName",
+                                                "Operator": "=",
+                                                "Condition": "sa"
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "Name": "audit_ctrl_3.2",
+                                    "Enabled": true,
+                                    "Description": "Source: https://confluence.aviva.co.uk/display/UKDS/3.2+Guest+User",
+                                    "Header": [
+                                        {
+                                            "ON": "ALL SERVER",
+                                            "FOR": "GRANT_DATABASE"
+                                        }
+                                    ],
+                                    "Body": {
+                                        "Predicate": [
+                                            {
+                                                "EVENT_INSTANCE": "Grantees/Grantee",
+                                                "Operator": "=",
+                                                "Condition": "guest"
+                                            },
+                                            {
+                                                "EVENT_INSTANCE": "Permissions/Permission",
+                                                "Operator": "=",
+                                                "Condition": "connect"
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "Name": "audit_ctrl_3.4",
+                                    "Enabled": true,
+                                    "Description": "Source: https://confluence.aviva.co.uk/display/UKDS/3.4+Contained+Databases",
+                                    "Header": [
+                                        {
+                                            "ON": "ALL SERVER",
+                                            "FOR": "DDL_SERVER_LEVEL_EVENTS"
+                                        }
+                                    ],
+                                    "Body": {
+                                        "Predicate": [
+                                            {
+                                                "EVENT_INSTANCE": "PropertyName",
+                                                "Operator": "=",
+                                                "Condition": "contained database authentication"
+                                            },
+                                            {
+                                                "EVENT_INSTANCE": "PropertyValue",
+                                                "Operator": "=",
+                                                "Condition": 1
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "Name": "audit_ctrl_3.8",
+                                    "Enabled": true,
+                                    "Description": "Source: https://confluence.aviva.co.uk/display/UKDS/3.8+Public+Server+Role",
+                                    "Header": [
+                                        {
+                                            "ON": "ALL SERVER",
+                                            "FOR": "DDL_SERVER_LEVEL_EVENTS"
+                                        }
+                                    ],
+                                    "Body": {
+                                        "Predicate": [
+                                            {
+                                                "EVENT_INSTANCE": "Grantees/Grantee",
+                                                "Operator": "=",
+                                                "Condition": "public"
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "Name": "audit_ctrl_3.9",
+                                    "Enabled": true,
+                                    "Description": "Source: https://confluence.aviva.co.uk/display/UKDS/3.9+BUILTIN+Groups",
+                                    "Header": [
+                                        {
+                                            "ON": "ALL SERVER",
+                                            "FOR": "DDL_SERVER_LEVEL_EVENTS"
+                                        }
+                                    ],
+                                    "Body": {
+                                        "Predicate": [
+                                            {
+                                                "EVENT_INSTANCE": "ObjectName",
+                                                "Operator": "LIKE",
+                                                "Condition": "BUILTIN%"
+                                            },
+                                            {
+                                                "EVENT_INSTANCE": "EventType",
+                                                "Operator": "LIKE",
+                                                "Condition": "CREATE%"
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "Name": "audit_ctrl_3.10",
+                                    "Enabled": true,
+                                    "Description": "Source: https://confluence.aviva.co.uk/display/UKDS/3.10+Local+Groups",
+                                    "Header": [
+                                        {
+                                            "ON": "ALL SERVER",
+                                            "FOR": "DDL_SERVER_LEVEL_EVENTS"
+                                        }
+                                    ],
+                                    "Body": {
+                                        "Predicate": [
+                                            {
+                                                "EVENT_INSTANCE": "ObjectName",
+                                                "Operator": "LIKE",
+                                                "ConditionState": "Dynamic",
+                                                "Condition": "$SQLServer.NetName + [char]37"
+                                            },
+                                            {
+                                                "EVENT_INSTANCE": "EventType",
+                                                "Operator": "LIKE",
+                                                "Condition": "CREATE%"
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "Name": "audit_ctrl_4.2",
+                                    "Enabled": true,
+                                    "Description": "Source: https://confluence.aviva.co.uk/display/UKDS/4.2+CHECK_EXPIRATION+Option",
+                                    "Header": [
+                                        {
+                                            "ON": "ALL SERVER",
+                                            "FOR": "DDL_SERVER_LEVEL_EVENTS"
+                                        }
+                                    ],
+                                    "Body": {
+                                        "Predicate": [
+                                            {
+                                                "EVENT_INSTANCE": "EventType",
+                                                "Operator": "=",
+                                                "Condition": "ADD_SERVER_ROLE_MEMBER"
+                                            },
+                                            {
+                                                "EVENT_INSTANCE": "LoginType",
+                                                "Operator": "=",
+                                                "Condition": "SQL Login"
+                                            },
+                                            {
+                                                "EVENT_INSTANCE": "RoleName",
+                                                "Operator": "=",
+                                                "Condition": "sysadmin"
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "Name": "audit_ctrl_4.3",
+                                    "Enabled": false,
+                                    "Description": "Source: https://confluence.aviva.co.uk/display/UKDS/4.3+CHECK_POLICY+Option",
+                                    "Header": [
+                                        {
+                                            "ON": "ALL SERVER",
+                                            "FOR": "DDL_SERVER_LEVEL_EVENTS"
+                                        }
+                                    ],
+                                    "Body": {
+                                        "Predicate": [
+                                            {
+                                                "EVENT_INSTANCE": "TSQLCommand/CommandText",
+                                                "Operator": "LIKE",
+                                                "Condition": "%CHECK_POLICY=OFF%"
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "Name": "audit_ctrl_5.2",
+                                    "Enabled": true,
+                                    "Description": "Source: https://confluence.aviva.co.uk/display/UKDS/5.2+Default+Trace+Enabled",
+                                    "Header": [
+                                        {
+                                            "ON": "ALL SERVER",
+                                            "FOR": "DDL_SERVER_LEVEL_EVENTS"
+                                        }
+                                    ],
+                                    "Body": {
+                                        "Predicate": [
+                                            {
+                                                "EVENT_INSTANCE": "PropertyName",
+                                                "Operator": "=",
+                                                "Condition": "default trace enabled"
+                                            },
+                                            {
+                                                "EVENT_INSTANCE": "PropertyValue",
+                                                "Operator": "=",
+                                                "Condition": 0
+                                            }
+                                        ]
+                                    }
+                                }
+                            ],
+                            "SAC": [
+                                {
+                                    "PlaceHolder": "Future Use"
+                                }
+                            ],
+                            "audits": [
+                                {
+                                    "Name": "authentication.log",
+                                    "Enabled": true,
+                                    "Description": "Source: https://confluence.aviva.co.uk/display/UKDS/5.4+SQL+Server+Audit",
+                                    "RolloverFiles": 1,
+                                    "FileSize": 50,
+                                    "ReserveDiskSpace": true,
+                                    "Events": [
+                                        "AuditChangeGroup",
+                                        "FailedLoginGroup",
+                                        "SuccessfulLoginGroup"
+                                    ]
+                                },
+                                {
+                                    "Name": "server.privileged.user.access.log",
+                                    "Enabled": true,
+                                    "Description": "Source: https://confluence.aviva.co.uk/display/UKDS/8.4+Privileged+User+Access",
+                                    "RolloverFiles": 1,
+                                    "FileSize": 50,
+                                    "ReserveDiskSpace": true,
+                                    "Events": [
+                                        "AuditChangeGroup",
+                                        "LoginChangePasswordGroup",
+                                        "ServerObjectOwnershipChangeGroup",
+                                        "ServerObjectPermissionChangeGroup",
+                                        "ServerPermissionChangeGroup",
+                                        "ServerPrincipalChangeGroup",
+                                        "ServerRoleMemberChangeGroup"
+                                    ]
+                                },
+                                {
+                                    "Name": "database.privileged.user.access.log",
+                                    "Enabled": true,
+                                    "Description": "Source: https://confluence.aviva.co.uk/display/UKDS/8.4+Privileged+User+Access",
+                                    "RolloverFiles": 1,
+                                    "FileSize": 50,
+                                    "ReserveDiskSpace": true,
+                                    "Events": [
+                                        "AuditChangeGroup",
+                                        "ApplicationRoleChangePasswordGroup",
+                                        "DatabaseChangeGroup",
+                                        "DatabaseObjectOwnershipChangeGroup",
+                                        "DatabaseObjectPermissionChangeGroup",
+                                        "DatabaseOwnershipChangeGroup",
+                                        "DatabasePermissionChangeGroup",
+                                        "DatabasePrincipalChangeGroup",
+                                        "DatabaseRoleMemberChangeGroup",
+                                        "SchemaObjectAccessGroup",
+                                        "SchemaObjectOwnershipChangeGroup",
+                                        "SchemaObjectPermissionChangeGroup",
+                                        "UserChangePasswordGroup"
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}
