@@ -1,0 +1,301 @@
+{
+    "shell": "PowerShell",
+    "version": 5.0,
+    "BuildSubModuleVersion": "1.0.7.2",
+    "attributes": [
+        {
+            "Name": "VerbosePreference",
+            "Value": "Continue"
+        },
+        {
+            "Name": "DebugPreference",
+            "Value": "SilentlyContinue"
+        }
+    ],
+    "EnvironmentVariables": [],
+    "pipeline": [
+        {
+            "step": 0,
+            "script": "apply-globalVariables.ps1",
+            "description": "applies global variables for build.",
+            "parameters": [
+                {
+                    "Name": "GlobalParams",
+                    "Value": {
+                        "RoleArn": "arn:aws:iam::681585873854:role/operations-dba",
+                        "Region": "eu-west-2"
+                    }
+                }
+            ]
+        },
+        {
+            "step": 1,
+            "script": "vault-token.ps1",
+            "description": "get vault token.",
+            "parameters": [
+                {
+                    "Name": "VaultParams",
+                    "Value": {
+                        "uri": "http://vault.com:8200",
+                        "authMethod": "userpass",
+                        "VCSToken": {
+                            "backend": "team_aws_direct_operations_dba_generic",
+                            "alias": "Msa_deployer",
+                            "key": "GITHUB_TOKEN"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "step": 6,
+            "script": "connect-SQLServer.ps1",
+            "description": "creates a global connection to the SQL for deployment.",
+            "parameters": [
+                {
+                    "Name": "SQLServerParams",
+                    "Value": [
+                        {
+                            "ServerName": "localhost",
+                            "vault": {
+                                "uri": "http://vault.com:8200",
+                                "backend": "team_aws_direct_operations_dba_generic",
+                                "alias": "REF_BUILD"
+                            },
+                            "user": "dbAdmin",
+                            "LoginType": "SqlLogin",
+                            "TimeOut": 0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "step": 8.0,
+            "script": "deploy-databases.ps1",
+            "description": "deploys the application databases.",
+            "parameters": [
+                {
+                    "Name": "DatabaseParams",
+                    "Value": {
+                        "Platform": "EC2",
+                        "Databases": [
+                            {
+                                "Database": "ASPSession",
+                                "ReplaceDatabase": true,
+                                "NoRecovery": false,
+                                "Device": "S3",
+                                "Bucket": "sqlhorizons",
+                                "Region": "eu-west-2",
+                                "Path": "backups/dev/ASPSession",
+                                "BackupFile": "LATEST"
+                            },
+                            {
+                                "Database": "nexus",
+                                "DatabaseRole": "principal",
+                                "ReplaceDatabase": true,
+                                "NoRecovery": false,
+                                "Device": "S3",
+                                "Bucket": "sqlhorizons",
+                                "Region": "eu-west-2",
+                                "Path": "backups/dev/nexus",
+                                "BackupFile": "LATEST",
+                                "RelocateFiles": [
+                                    {
+                                        "logicalFileName": "nexus",
+                                        "physicalFilePath": "S:/Data_X/data_01/MSSQL/Data",
+                                        "physicalFileName": "nexus_data.mdf"
+                                    },
+                                    {
+                                        "logicalFileName": "nexus_Log",
+                                        "physicalFilePath": "S:/Data_X/tLog_01/MSSQL/tLog",
+                                        "physicalFileName": "nexus_log.ldf"
+                                    }
+                                ],
+                                "Settings": {
+                                    "Compatibility": "Version130",
+                                    "dbOwner": "dbAdmin",
+                                    "RevokeGuest": true,
+                                    "AutoClose": false,
+                                    "AutoShrink": false,
+                                    "PageVerify": "Checksum",
+                                    "OwnershipChaining": false,
+                                    "FixVirtualLogFiles": true,
+                                    "LogFile": {
+                                        "Size": 20,
+                                        "Growth": 5,
+                                        "GrowthType": "KB",
+                                        "MaxSize": 100
+                                    },
+                                    "RecoveryModel": "Full"
+                                },
+                                "roles": {
+                                    "roleName": "app_dataAdmin",
+                                    "Owner": "dbo",
+                                    "roles": [
+                                        "db_ddladmin",
+                                        "db_securityadmin",
+                                        "db_backupoperator",
+                                        "db_datareader"
+                                    ],
+                                    "DatabasePermissionSet": [
+                                        "ViewDatabaseState",
+                                        "ViewDefinition",
+                                        "AlterAnyUser",
+                                        "Execute"
+                                    ]
+                                },
+                                "cleanup": {
+                                    "Principals": [
+                                        {
+                                            "LoginType": "WindowsGroup",
+                                            "dropPrincipal": true,
+                                            "domain": "AVIVAHOME"
+                                        },
+                                        {
+                                            "LoginType": "WindowsUser",
+                                            "dropPrincipal": true
+                                        }
+                                    ]
+                                }
+                            },
+                            {
+                                "Database": "sessionData",
+                                "ReplaceDatabase": true,
+                                "NoRecovery": false,
+                                "Device": "S3",
+                                "Bucket": "sqlhorizons",
+                                "Region": "eu-west-2",
+                                "Path": "backups/dev/sessionData",
+                                "BackupFile": "LATEST",
+                                "Settings": {
+                                    "Compatibility": "Version130",
+                                    "AutoClose": false,
+                                    "AutoShrink": false,
+                                    "PageVerify": "Checksum",
+                                    "OwnershipChaining": false,
+                                    "FixVirtualLogFiles": false,
+                                    "RecoveryModel": "Simple"
+                                }
+                            },
+                            {
+                                "Database": "SQLHorizons",
+                                "ReplaceDatabase": true,
+                                "NoRecovery": false,
+                                "Device": "S3",
+                                "Bucket": "sqlhorizons",
+                                "Region": "eu-west-2",
+                                "Path": "backups/dev/SQLHorizons",
+                                "BackupFile": "LATEST",
+                                "RelocateFiles": [
+                                    {
+                                        "logicalFileName": "SQLHorizons",
+                                        "physicalFilePath": "S:/Data_X/data_01/MSSQL/Data",
+                                        "physicalFileName": "SQLHorizons.mdf"
+                                    },
+                                    {
+                                        "logicalFileName": "SQLHorizons_log",
+                                        "physicalFilePath": "S:/Data_X/tLog_01/MSSQL/tLog",
+                                        "physicalFileName": "SQLHorizons.ldf"
+                                    }
+                                ],
+                                "Settings": {
+                                    "Compatibility": "Version130",
+                                    "dbOwner": "dbAdmin",
+                                    "RevokeGuest": true,
+                                    "AutoClose": false,
+                                    "AutoShrink": false,
+                                    "PageVerify": "Checksum",
+                                    "OwnershipChaining": false,
+                                    "FixVirtualLogFiles": true,
+                                    "LogFile": {
+                                        "Size": 20,
+                                        "Growth": 5,
+                                        "GrowthType": "KB",
+                                        "MaxSize": 100
+                                    },
+                                    "RecoveryModel": "Full"
+                                },
+                                "roles": {
+                                    "roleName": "app_dataAdmin",
+                                    "Owner": "dbo",
+                                    "roles": [
+                                        "db_ddladmin",
+                                        "db_securityadmin",
+                                        "db_backupoperator",
+                                        "db_datareader"
+                                    ],
+                                    "DatabasePermissionSet": [
+                                        "ViewDatabaseState",
+                                        "ViewDefinition",
+                                        "AlterAnyUser",
+                                        "Execute"
+                                    ]
+                                },
+                                "cleanup": {
+                                    "Principals": [
+                                        {
+                                            "LoginType": "WindowsGroup",
+                                            "dropPrincipal": true,
+                                            "domain": "AVIVAHOME"
+                                        },
+                                        {
+                                            "LoginType": "WindowsUser",
+                                            "dropPrincipal": true
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "step": 8.1,
+            "script": "deploy-mirroring.ps1",
+            "description": "deploys the database mirroring configuration.",
+            "parameters": [
+                {
+                    "Name": "HaDrParams",
+                    "Value": {
+                        "Platform": "EC2",
+                        "HaDrRoles": [
+                            {
+                                "name": "mirror",
+                                "alias": "db-oc22",
+                                "port": 10767
+                            },
+                            {
+                                "name": "principal",
+                                "alias": "db-oc21",
+                                "PartnerTimeout": 300,
+                                "port": 10767
+                            },
+                            {
+                                "name": "witness",
+                                "alias": "db-oc23",
+                                "port": 10767
+                            }
+                        ],
+                        "vault": {
+                            "uri": "http://vault.com:8200",
+                            "backend": "team_aws_direct_operations_dba_generic",
+                            "alias": "REF_BUILD"
+                        },
+                        "user": "dbAdmin",
+                        "LoginType": "SqlLogin",
+                        "TimeOut": 0,
+                        "FailOverTest": true,
+                        "databases": [
+                            "ASPSession",
+                            "nexus",
+                            "sessionData",
+                            "SQLHorizons"
+                        ]
+                    }
+                }
+            ]
+        }
+    ]
+}
