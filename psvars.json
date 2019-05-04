@@ -1,7 +1,7 @@
 {
     "shell": "PowerShell",
     "version": 5.0,
-    "BuildSubModuleVersion": "1.0.6.3",
+    "BuildSubModuleVersion": "2019.10.0",
     "attributes": [
         {
             "Name": "VerbosePreference",
@@ -19,7 +19,7 @@
             "target": "Machine"
         },
         {
-            "variable": "environment",
+            "variable": "$restoreDef.path",
             "value": "backups/dev",
             "target": "Machine"
         },
@@ -44,6 +44,11 @@
             "target": "Machine"
         }
     ],
+    "vsts": {
+        "ProjectFolder": {
+            "redeploy": true
+        }
+    },
     "pipeline": [
         {
             "step": 0,
@@ -82,6 +87,7 @@
             "step": 2,
             "script": "deploy-resources.ps1",
             "description": "deploys SQL2016 build resources.",
+            "RunOnce": true,
             "parameters": [
                 {
                     "Name": "ResourcesParams",
@@ -121,6 +127,7 @@
             "step": 3,
             "script": "deploy-modules.ps1",
             "description": "deploys PowerShell DSC modules.",
+            "RunOnce": true,
             "parameters": [
                 {
                     "Name": "ModuleParams",
@@ -129,7 +136,7 @@
                             "PSRepository": {
                                 "InstallationPolicy": "Trusted",
                                 "PackageManagementProvider": "nuget",
-                                "Name": "SQLHorizons",
+                                "Name": "db.Build",
                                 "PublishLocation": "http://ms-oc27:8081/repository/SQLHorizons/",
                                 "SourceLocation": "http://ms-oc27:8081/repository/SQLHorizons/",
                                 "ErrorAction": "SilentlyContinue"
@@ -137,7 +144,7 @@
                             "modules": [
                                 {
                                     "Name": "SqlServerDsc",
-                                    "RequiredVersion": "12.2.0.0"
+                                    "RequiredVersion": "12.5.0.0"
                                 },
                                 {
                                     "Name": "StorageDsc",
@@ -165,6 +172,7 @@
             "step": 5.0,
             "script": "deploy-sql.ps1",
             "description": "deploys an instance of SQL Services.",
+            "RunOnce": true,
             "parameters": [
                 {
                     "Name": "pattern",
@@ -287,6 +295,7 @@
             "step": 7,
             "script": "deploy-tempdb.ps1",
             "description": "deploys the desired state for tempdb.",
+            "RunOnce": true,
             "parameters": [
                 {
                     "Name": "tempdbParam",
@@ -322,6 +331,7 @@
                             {
                                 "Database": "ASPSession",
                                 "ReplaceDatabase": true,
+                                "NoRecovery": false,
                                 "Device": "S3",
                                 "Bucket": "sqlhorizons",
                                 "Region": "eu-west-2",
@@ -332,11 +342,8 @@
                                 "Database": "nexus",
                                 "DatabaseRole": "principal",
                                 "ReplaceDatabase": true,
-                                "NoRecovery": true,
+                                "NoRecovery": false,
                                 "Device": "S3",
-                                "Bucket": "sqlhorizons",
-                                "Region": "eu-west-2",
-                                "Path": "backups/dev/nexus",
                                 "BackupFile": "LATEST",
                                 "RelocateFiles": [
                                     {
@@ -400,6 +407,7 @@
                             {
                                 "Database": "sessionData",
                                 "ReplaceDatabase": true,
+                                "NoRecovery": false,
                                 "Device": "SMB",
                                 "Path": "unc::ms-oc27/data",
                                 "BackupFile": "DB-OC21_sessionData_FULL_20180929_223658.bak",
@@ -416,11 +424,12 @@
                             {
                                 "Database": "SQLHorizons",
                                 "ReplaceDatabase": true,
+                                "NoRecovery": false,
                                 "Device": "S3",
                                 "Bucket": "sqlhorizons",
                                 "Region": "eu-west-2",
                                 "Path": "backups/dev/SQLHorizons/FULL",
-                                "BackupFile": "DB-OC21_SQLHorizons_FULL_20190314_155021.bak",
+                                "BackupFile": "DB-OC21_SQLHorizons_FULL_20190519_191526.bak",
                                 "RelocateFiles": [
                                     {
                                         "logicalFileName": "SQLHorizons",
@@ -503,6 +512,12 @@
                             {
                                 "name": "principal",
                                 "alias": "db-oc21",
+                                "PartnerTimeout": 300,
+                                "port": 10767
+                            },
+                            {
+                                "name": "witness",
+                                "alias": "db-oc23",
                                 "port": 10767
                             }
                         ],
@@ -516,9 +531,7 @@
                         "TimeOut": 0,
                         "FailOverTest": true,
                         "databases": [
-                            "ASPSession",
                             "nexus",
-                            "sessionData",
                             "SQLHorizons"
                         ]
                     }
@@ -526,7 +539,7 @@
             ]
         },
         {
-            "step": 9,
+            "step": 9.0,
             "script": "deploy-SQLJobs.ps1",
             "description": "deploys SQL Agent Jobs.",
             "parameters": [
@@ -542,7 +555,7 @@
                             {
                                 "jobName": "SQLOps - Agent Alert Test",
                                 "jobOwner": "dbAdmin",
-                                "jobEnabled": true,
+                                "jobEnabled": false,
                                 "StartStepID": 2,
                                 "jobDescription": "Test the SQL Agent Alert process.",
                                 "Steps": [
@@ -564,19 +577,6 @@
                                         "OnFailStep": 1,
                                         "OnSuccessAction": "QuitWithSuccess",
                                         "SubSystem": "PowerShell"
-                                    }
-                                ],
-                                "Schedules": [
-                                    {
-                                        "scheduleName": "SQLOps - Agent Alert Test",
-                                        "IsEnabled": true,
-                                        "StartTimeOfDay": "09:00:00",
-                                        "EndTimeOfDay": "17:59:59",
-                                        "FrequencyInterval": 1,
-                                        "FrequencySubDayTypes": "Minute",
-                                        "FrequencySubDayInterval": 15,
-                                        "FrequencyRecurrenceFactor": 0,
-                                        "FrequencyTypes": "Daily"
                                     }
                                 ]
                             },
@@ -667,7 +667,7 @@
                                     {
                                         "step": 3,
                                         "stepName": "Copy-ToAWSBucket",
-                                        "stepCommand": "S:\\Data_X\\PoSh\\Copy-ToAWSBucket.ps1",
+                                        "stepCommand": "S:\\Data_X\\PoSh\\Copy-ToAWSBucket.ps1 -Exclude @('ASPSession')",
                                         "CommandType": "posh",
                                         "OnFailAction": "GoToStep",
                                         "OnFailStep": 1,
@@ -722,7 +722,7 @@
                                     {
                                         "step": 3,
                                         "stepName": "Copy-ToAWSBucket",
-                                        "stepCommand": "S:\\Data_X\\PoSh\\Copy-ToAWSBucket.ps1 -BackupType DIFF",
+                                        "stepCommand": "S:\\Data_X\\PoSh\\Copy-ToAWSBucket.ps1 -BackupType DIFF -Exclude @('ASPSession')",
                                         "CommandType": "posh",
                                         "OnFailAction": "GoToStep",
                                         "OnFailStep": 1,
@@ -777,7 +777,7 @@
                                     {
                                         "step": 3,
                                         "stepName": "Copy-ToAWSBucket",
-                                        "stepCommand": "S:\\Data_X\\PoSh\\Copy-ToAWSBucket.ps1 -BackupType LOG",
+                                        "stepCommand": "S:\\Data_X\\PoSh\\Copy-ToAWSBucket.ps1 -BackupType LOG  -Exclude @('ASPSession', 'sessionData')",
                                         "CommandType": "posh",
                                         "OnFailAction": "GoToStep",
                                         "OnFailStep": 1,
@@ -1183,6 +1183,24 @@
                         ],
                         "logins": [
                             {
+                                "Name": "NT AUTHORITY\\SYSTEM",
+                                "LoginType": "WindowsGroup",
+                                "SetSecret": false,
+                                "DefaultDatabase": "master",
+                                "databases": [
+                                    {
+                                        "database": "SQLOps",
+                                        "UserName": "NT AUTHORITY\\SYSTEM",
+                                        "DefaultSchema": "dbo",
+                                        "roles": [
+                                            {
+                                                "roleName": "db_owner"
+                                            }
+                                        ]
+                                    }
+                                ]
+                            },
+                            {
                                 "Name": "SplunkUser",
                                 "LoginType": "SqlLogin",
                                 "PasswordPolicyEnforced": true,
@@ -1407,7 +1425,8 @@
                             {
                                 "Name": "nexusRead",
                                 "LoginType": "SqlLogin",
-                                "SetSecret": true,
+                                "PasswordPolicyEnforced": true,
+                                "SetSecret": false,
                                 "DefaultDatabase": "nexus",
                                 "IsDisabled": false,
                                 "Language": "us_english",
@@ -1430,6 +1449,191 @@
                                         ]
                                     }
                                 ]
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "step": 11.0,
+            "script": "deploy-linkedServer.ps1",
+            "description": "deploys application specific linked server configurations.",
+            "parameters": [
+                {
+                    "Name": "LinkedServerParams",
+                    "Value": {
+                        "vault": [
+                            {
+                                "uri": "http://vault.com:8200",
+                                "backend": "team_aws_direct_operations_dba_generic",
+                                "alias": "REF_BUILDApplication"
+                            }
+                        ],
+                        "servers": [
+                            {
+                                "Name": "DATGDB2",
+                                "Catalog": "DATG",
+                                "ProductName": "Microsoft OLE DB Provider for DB2",
+                                "ProviderName": "DB2OLEDB",
+                                "ProviderString": {
+                                    "NetLib": "TCPIP",
+                                    "NetAddr": "datg-db2-app.norfolk.com",
+                                    "NetPort": "3134",
+                                    "RemoteLU": "DATG",
+                                    "LocalLU": "LOCAL",
+                                    "ModeName": "QPCSUPP",
+                                    "User ID": "DB2Read",
+                                    "Password": "",
+                                    "InitCat": "DATG",
+                                    "Default Schema": "CITXA2A",
+                                    "PkgCol": "CTEST",
+                                    "TPName": "",
+                                    "Commit": "YES",
+                                    "IsoLvl": "NC",
+                                    "AccMode": "",
+                                    "CCSID": "37",
+                                    "PCCodePage": "1252",
+                                    "BinAsChar": "NO"
+                                }
+                            },
+                            {
+                                "Name": "DAUGDB2",
+                                "Catalog": "DAUG",
+                                "ProductName": "Microsoft OLE DB Provider for DB2",
+                                "ProviderName": "DB2OLEDB",
+                                "ProviderString": {
+                                    "NetLib": "TCPIP",
+                                    "NetAddr": "daug-db2-app.norfolk.com",
+                                    "NetPort": "3126",
+                                    "RemoteLU": "DAUG",
+                                    "LocalLU": "LOCAL",
+                                    "ModeName": "QPCSUPP",
+                                    "User ID": "DB2Read",
+                                    "Password": "",
+                                    "InitCat": "DAUG",
+                                    "Default Schema": "CITXA2A",
+                                    "PkgCol": "CTEST",
+                                    "TPName": "",
+                                    "Commit": "YES",
+                                    "IsoLvl": "NC",
+                                    "AccMode": "",
+                                    "CCSID": "37",
+                                    "PCCodePage": "1252",
+                                    "BinAsChar": "NO"
+                                }
+                            },
+                            {
+                                "Name": "DB-OC21",
+                                "ProductName": "SQL Server",
+                                "ProviderName": "SQLNCLI",
+                                "ServerOptions": {
+                                    "Rpc": true,
+                                    "RpcOut": true
+                                },
+                                "SecurityContext": {
+                                    "RemoteUser": "dbAdmin"
+                                }
+                            },
+                            {
+                                "Name": "LINKTELEQUEST",
+                                "Catalog": "nexus",
+                                "ProviderName": "SQLNCLI",
+                                "DataSource": "db-oc21",
+                                "ServerOptions": {
+                                    "Rpc": true,
+                                    "RpcOut": true
+                                },
+                                "SecurityContext": {
+                                    "RemoteUser": "nexusRead"
+                                }
+                            },
+                            {
+                                "Name": "TestODBC_Driver13",
+                                "Catalog": "nexus",
+                                "ProviderName": "MSDASQL",
+                                "ProviderString": {
+                                    "Driver": "{ODBC Driver 13 for SQL Server}",
+                                    "Server": "db-oc21",
+                                    "Database": "nexus",
+                                    "Uid": "nexusRead",
+                                    "Pwd": ""
+                                }
+                            },
+                            {
+                                "Name": "TestODBC_SNC11",
+                                "Catalog": "nexus",
+                                "ProviderName": "MSDASQL",
+                                "ProviderString": {
+                                    "Driver": "{SQL Server Native Client 11.0}",
+                                    "Server": "db-oc21",
+                                    "Database": "nexus",
+                                    "Uid": "nexusRead",
+                                    "Pwd": ""
+                                }
+                            },
+                            {
+                                "Name": "TestODBC_Driver17",
+                                "Catalog": "nexus",
+                                "ProviderName": "MSDASQL",
+                                "ProviderString": {
+                                    "Driver": "{ODBC Driver 17 for SQL Server}",
+                                    "Server": "db-oc21",
+                                    "Database": "nexus",
+                                    "Uid": "nexusRead",
+                                    "Pwd": ""
+                                }
+                            },
+                            {
+                                "Name": "TestSNC11",
+                                "Catalog": "nexus",
+                                "ProviderName": "SQLNCLI11",
+                                "ProviderString": {
+                                    "Provider": "SQLNCLI11",
+                                    "Server": "db-oc21",
+                                    "Database": "nexus",
+                                    "Uid": "nexusRead",
+                                    "Pwd": ""
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "step": 11.1,
+            "script": "deploy-SQLAlerts.ps1",
+            "description": "deploys SQL Server alerts.",
+            "parameters": [
+                {
+                    "Name": "AlertParams",
+                    "Value": {
+                        "alertCategory": "SQLOps - Database Alerts",
+                        "alerts": [
+                            {
+                                "alertName": "Database x tLog 70% full",
+                                "IsEnabled": true,
+                                "Delay": 900,
+                                "PerformanceCondition": {
+                                    "Object": "Databases",
+                                    "Counter": "Percent Log Used",
+                                    "Instance": "nexus",
+                                    "Condition": ">",
+                                    "Threshold": 70
+                                }
+                            },
+                            {
+                                "alertName": "Database y tLog 75% full",
+                                "IsEnabled": true,
+                                "Delay": 900,
+                                "PerformanceCondition": {
+                                    "Object": "Databases",
+                                    "Counter": "Percent Log Used",
+                                    "Instance": "nexus",
+                                    "Condition": ">",
+                                    "Threshold": 75
+                                }
                             }
                         ]
                     }
@@ -1540,6 +1744,40 @@
                             }
                         ]
                     }
+                }
+            ]
+        },
+        {
+            "step": 14.3,
+            "script": "deploy-ASPState.ps1",
+            "description": "creates a SQL database for ASP.Net session state storage",
+            "parameters": [
+                {
+                    "Name": "ASPStateParams",
+                    "Value": [
+                        {
+                            "ServerName": "localhost",
+                            "user": "dbAdmin",
+                            "vault": {
+                                "uri": "http://vault.com:8200",
+                                "backend": "team_aws_direct_operations_dba_generic",
+                                "alias": "REF_BUILD"
+                            },
+                            "ASPNetRegSQLPath": "C:/Windows/Microsoft.NET/Framework64/v4.0.30319/aspnet_regsql.exe",
+                            "ssType": "c",
+                            "Database": "Wizard",
+                            "Settings": {
+                                "Compatibility": "Version130",
+                                "dbOwner": "dbAdmin",
+                                "RevokeGuest": true,
+                                "AutoClose": false,
+                                "AutoShrink": false,
+                                "PageVerify": "Checksum",
+                                "OwnershipChaining": false,
+                                "RecoveryModel": "Simple"
+                            }
+                        }
+                    ]
                 }
             ]
         },
@@ -2133,6 +2371,17 @@
                             ]
                         }
                     ]
+                }
+            ]
+        },
+        {
+            "ignore step": 16.0,
+            "script": "backup-databases.ps1",
+            "description": "backup the application databases to s3.",
+            "parameters": [
+                {
+                    "Name": "DatabaseParams",
+                    "Value": true
                 }
             ]
         }

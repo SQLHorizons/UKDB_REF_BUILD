@@ -1,0 +1,101 @@
+{
+    "shell": "PowerShell",
+    "version": 5.0,
+    "BuildSubModuleVersion": "1.0.7.2",
+    "attributes": [
+        {
+            "Name": "VerbosePreference",
+            "Value": "Continue"
+        },
+        {
+            "Name": "DebugPreference",
+            "Value": "SilentlyContinue"
+        }
+    ],
+    "EnvironmentVariables": [
+        {
+            "variable": "S3_BUCKET",
+            "value": "sqlhorizons",
+            "target": "Machine"
+        },
+        {
+            "variable": "environment",
+            "value": "backups/dev",
+            "target": "Machine"
+        },
+        {
+            "variable": "AWS_DEFAULT_REGION",
+            "value": "eu-west-2",
+            "target": "Machine"
+        }
+    ],
+    "pipeline": [
+        {
+            "step": 0,
+            "script": "apply-globalVariables.ps1",
+            "description": "applies global variables for build.",
+            "parameters": [
+                {
+                    "Name": "GlobalParams",
+                    "Value": {
+                        "RoleArn": "arn:aws:iam::681585873854:role/operations-dba",
+                        "Region": "eu-west-2"
+                    }
+                }
+            ]
+        },
+        {
+            "step": 1,
+            "script": "vault-token.ps1",
+            "description": "get vault token.",
+            "parameters": [
+                {
+                    "Name": "VaultParams",
+                    "Value": {
+                        "uri": "http://vault.com:8200",
+                        "authMethod": "userpass",
+                        "VCSToken": {
+                            "backend": "team_aws_direct_operations_dba_generic",
+                            "alias": "Msa_deployer",
+                            "key": "GITHUB_TOKEN"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "step": 6,
+            "script": "connect-SQLServer.ps1",
+            "description": "creates a global connection to the SQL for deployment.",
+            "parameters": [
+                {
+                    "Name": "SQLServerParams",
+                    "Value": [
+                        {
+                            "ServerName": "localhost",
+                            "vault": {
+                                "uri": "http://vault.com:8200",
+                                "backend": "team_aws_direct_operations_dba_generic",
+                                "alias": "REF_BUILD"
+                            },
+                            "user": "dbAdmin",
+                            "LoginType": "SqlLogin",
+                            "TimeOut": 0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "step": 16.0,
+            "script": "backup-databases.ps1",
+            "description": "backup the application databases to s3.",
+            "parameters": [
+                {
+                    "Name": "DatabaseParams",
+                    "Value": true
+                }
+            ]
+        }
+    ]
+}
