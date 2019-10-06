@@ -44,6 +44,13 @@
             "target": "Machine"
         }
     ],
+    "vsts": {
+        "Project": "UKDB_LIVE_BUILD",
+        "ProjectFolder": {
+            "redeploy": true,
+            "environment": "DEV"
+        }
+    },
     "pipeline": [
         {
             "step": 0,
